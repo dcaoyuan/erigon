@@ -3,7 +3,7 @@ module github.com/ledgerwatch/erigon
 go 1.18
 
 require (
-	github.com/ledgerwatch/erigon-lib v0.0.0-20221111035555-f9fe50d566fb
+	github.com/ledgerwatch/erigon-lib v0.0.0-20221111042818-9e1963e40da8
 	github.com/ledgerwatch/erigon-snapshot v1.1.1-0.20221026024915-f6abfe5c120e
 	github.com/ledgerwatch/log/v3 v3.6.0
 	github.com/ledgerwatch/secp256k1 v1.0.0
@@ -89,6 +89,7 @@ require (
 )
 
 require (
+	github.com/anacrolix/confluence v1.9.0 // indirect
 	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/containerd/cgroups v1.0.4 // indirect
@@ -159,6 +160,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.8.0 // indirect
 	go.uber.org/multierr v1.8.0 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
+	zombiezen.com/go/sqlite v0.8.0 // indirect
 )
 
 require (
