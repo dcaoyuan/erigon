@@ -54,6 +54,10 @@ func applyTransaction(config *params.ChainConfig, engine consensus.Engine, gp *G
 	// Update the evm with the new transaction context.
 	evm.Reset(txContext, ibs)
 
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.AddTx(tx.Hash(), msg.From(), msg.To(), msg.Value(), msg.Data(), msg.GasPrice(), msg.Gas())
+	}
+
 	result, err := ApplyMessage(evm, msg, gp, true /* refunds */, false /* gasBailout */)
 	if err != nil {
 		return nil, nil, err

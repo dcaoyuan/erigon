@@ -24,6 +24,7 @@ import (
 	"github.com/holiman/uint256"
 
 	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types"
 )
 
@@ -75,6 +76,9 @@ type IntraBlockState interface {
 	Snapshot() int
 
 	AddLog(*types.Log)
+
+	KafkaTracer() state.KafkaTracer
+	SetKafkaTracer(tracer state.KafkaTracer)
 }
 
 // CallContext provides a basic interface for the EVM calling conventions. The EVM

@@ -24,6 +24,7 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/common/u256"
+	"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/crypto"
 	"github.com/ledgerwatch/erigon/params"
 )
@@ -214,6 +215,10 @@ func (evm *EVM) call(callType CallType, caller ContractRef, addr common.Address,
 
 	snapshot := evm.intraBlockState.Snapshot()
 
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().PushCall(kt.NextCallId(), toOpId(callType), caller.Address(), addr, uint(evm.depth), input)
+	}
+
 	if callType == CALLT {
 		if !evm.intraBlockState.Exist(addr) {
 			if !isPrecompile && evm.chainRules.IsSpuriousDragon && value.IsZero() {
@@ -222,6 +227,11 @@ func (evm *EVM) call(callType CallType, caller ContractRef, addr common.Address,
 			evm.intraBlockState.CreateAccount(addr, false)
 		}
 		evm.context.Transfer(evm.intraBlockState, caller.Address(), addr, value, bailout)
+
+		if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+			kt.CurrentTx().CurrentCall().SetTransfer(caller.Address(), addr, *value)
+		}
+
 	} else if callType == STATICCALLT {
 		// We do an AddBalance of zero here, just in order to trigger a touch.
 		// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
@@ -273,6 +283,12 @@ func (evm *EVM) call(callType CallType, caller ContractRef, addr common.Address,
 		//} else {
 		//	evm.StateDB.DiscardSnapshot(snapshot)
 	}
+
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().CurrentCall().SetOutput(ret)
+		kt.CurrentTx().PopCall()
+	}
+
 	return ret, gas, err
 }
 
@@ -364,11 +380,20 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	}
 	// Create a new account on the state
 	snapshot := evm.intraBlockState.Snapshot()
+
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().PushCall(evm.IntraBlockState().KafkaTracer().NextCallId(), toOpId(calltype), caller.Address(), address, uint(evm.depth), codeAndHash.code)
+	}
+
 	evm.intraBlockState.CreateAccount(address, true)
 	if evm.chainRules.IsSpuriousDragon {
 		evm.intraBlockState.SetNonce(address, 1)
 	}
 	evm.context.Transfer(evm.intraBlockState, caller.Address(), address, value, false /* bailout */)
+
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().CurrentCall().SetTransfer(caller.Address(), address, *value)
+	}
 
 	// Initialise a new contract and set the code that is to be used by the EVM.
 	// The contract is a scoped environment for this execution context only.
@@ -418,6 +443,11 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 		err = ErrMaxCodeSizeExceeded
 	}
 
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().CurrentCall().SetOutput(ret)
+		kt.CurrentTx().PopCall()
+	}
+
 	return ret, address, contract.Gas, err
 
 }
@@ -464,4 +494,26 @@ func (evm *EVM) TxContext() TxContext {
 
 func (evm *EVM) IntraBlockState() IntraBlockState {
 	return evm.intraBlockState
+}
+
+func toOpId(calltype CallType) state.OpId {
+	var code state.OpId
+
+	switch calltype {
+	case CALLT:
+		code = state.CALL_OP
+	case CALLCODET:
+		code = state.CALLCODE_OP
+	case DELEGATECALLT:
+		code = state.DELEGATECALL_OP
+	case STATICCALLT:
+		code = state.STATICCALL_OP
+	case CREATET:
+		code = state.CREATE_OP
+	case CREATE2T:
+		code = state.CREATE2_OP
+	default:
+	}
+
+	return code
 }

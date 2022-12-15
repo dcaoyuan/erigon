@@ -23,6 +23,7 @@ import (
 	"golang.org/x/crypto/sha3"
 
 	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/log/v3"
@@ -274,6 +275,10 @@ func opKeccak256(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) (
 	interpreter.hasher.Write(data)
 	if _, err := interpreter.hasher.Read(interpreter.hasherBuf[:]); err != nil {
 		panic(err)
+	}
+
+	if kt := interpreter.evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().AddOp(state.NewKeccak256Trace(data, interpreter.hasherBuf[:]))
 	}
 
 	size.SetBytes(interpreter.hasherBuf[:])
@@ -564,6 +569,13 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	loc := scope.Stack.Pop()
 	val := scope.Stack.Pop()
 	interpreter.hasherBuf = loc.Bytes32()
+
+	if kt := interpreter.evm.IntraBlockState().KafkaTracer(); kt != nil {
+		oldVal := uint256.NewInt(0)
+		interpreter.evm.IntraBlockState().GetState(scope.Contract.Address(), &interpreter.hasherBuf, oldVal)
+		kt.CurrentTx().AddOp(state.NewSStoreTrace(loc, *oldVal, val))
+	}
+
 	interpreter.evm.IntraBlockState().SetState(scope.Contract.Address(), &interpreter.hasherBuf, val)
 	return nil, nil
 }

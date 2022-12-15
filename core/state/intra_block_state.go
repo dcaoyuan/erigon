@@ -89,6 +89,8 @@ type IntraBlockState struct {
 	trace          bool
 	accessList     *accessList
 	balanceInc     map[common.Address]*BalanceIncrease // Map of balance increases (without first reading the account)
+
+	kafkaTracer KafkaTracer
 }
 
 // Create a new state from a given trie
@@ -103,6 +105,11 @@ func New(stateReader StateReader) *IntraBlockState {
 		accessList:        newAccessList(),
 		balanceInc:        map[common.Address]*BalanceIncrease{},
 	}
+}
+
+func (sdb *IntraBlockState) KafkaTracer() KafkaTracer { return sdb.kafkaTracer }
+func (sdb *IntraBlockState) SetKafkaTracer(tracer KafkaTracer) {
+	sdb.kafkaTracer = tracer
 }
 
 func (sdb *IntraBlockState) SetTracer(tracer StateTracer) {
