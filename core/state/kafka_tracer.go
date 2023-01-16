@@ -21,7 +21,7 @@ var kafkaWriter *kafka.Writer
 
 var KAFKA_SERVERS = "192.168.1.102:9092"
 var KAFKA_KEY = []byte("eth")
-var KAFKA_TOPIC = "eth-main"
+var KAFKA_TOPIC = "eth-mainnet-incoming"
 
 type KafkaTracer interface {
 	AddTx(hash common.Hash, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasPrice *uint256.Int, gas uint64)
@@ -93,6 +93,8 @@ type TxTrace struct {
 	GasFee  *GasFeeTrace
 	GasUsed uint64
 	Output  []byte
+	Err     string
+	Status  uint8 // 0 - failed, 1 - success
 
 	// Store pointer to make sure it points to the same one in Ops
 	callstack []*CallTrace // not pubic so won't be rlpencoded

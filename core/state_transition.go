@@ -519,6 +519,12 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 	if kt := st.state.KafkaTracer(); kt != nil {
 		kt.CurrentTx().GasUsed = st.gasUsed()
 		kt.CurrentTx().Output = ret
+		if vmerr != nil {
+			kt.CurrentTx().Err = vmerr.Error()
+			kt.CurrentTx().Status = 0
+		} else {
+			kt.CurrentTx().Status = 1
+		}
 	}
 
 	return &ExecutionResult{
