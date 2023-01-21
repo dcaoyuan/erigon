@@ -204,6 +204,12 @@ func (evm *EVM) call(typ OpCode, caller ContractRef, addr libcommon.Address, inp
 
 	snapshot := evm.intraBlockState.Snapshot()
 
+	// --- kafka
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().PushCall(kt.NextCallId(), toOpId(typ), caller.Address(), addr, uint(evm.depth), input)
+	}
+	// --- end of kafka
+
 	if typ == CALL {
 		if !evm.intraBlockState.Exist(addr) {
 			if !isPrecompile && evm.chainRules.IsSpuriousDragon && value.IsZero() {
@@ -230,6 +236,13 @@ func (evm *EVM) call(typ OpCode, caller ContractRef, addr libcommon.Address, inp
 			evm.intraBlockState.CreateAccount(addr, false)
 		}
 		evm.context.Transfer(evm.intraBlockState, caller.Address(), addr, value, bailout)
+
+		// --- kafka
+		if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+			kt.CurrentTx().CurrentCall().SetTransfer(caller.Address(), addr, *value)
+		}
+		// --- end of kafka
+
 	} else if typ == STATICCALL {
 		// We do an AddBalance of zero here, just in order to trigger a touch.
 		// This doesn't matter on Mainnet, where all empties are gone at the time of Byzantium,
@@ -298,6 +311,14 @@ func (evm *EVM) call(typ OpCode, caller ContractRef, addr libcommon.Address, inp
 		//} else {
 		//	evm.StateDB.DiscardSnapshot(snapshot)
 	}
+
+	// --- kafka
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().CurrentCall().SetOutput(ret)
+		kt.CurrentTx().PopCall()
+	}
+	// --- end of kafka
+
 	return ret, gas, err
 }
 
@@ -381,11 +402,24 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	}
 	// Create a new account on the state
 	snapshot := evm.intraBlockState.Snapshot()
+
+	// --- kafka
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().PushCall(evm.IntraBlockState().KafkaTracer().NextCallId(), toOpId(typ), caller.Address(), address, uint(evm.depth), codeAndHash.code)
+	}
+	// --- end of kafka
+
 	evm.intraBlockState.CreateAccount(address, true)
 	if evm.chainRules.IsSpuriousDragon {
 		evm.intraBlockState.SetNonce(address, 1)
 	}
 	evm.context.Transfer(evm.intraBlockState, caller.Address(), address, value, false /* bailout */)
+
+	// --- kafka
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().CurrentCall().SetTransfer(caller.Address(), address, *value)
+	}
+	// --- end of kafka
 
 	// Initialise a new contract and set the code that is to be used by the EVM.
 	// The contract is a scoped environment for this execution context only.
@@ -446,6 +480,13 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 		}
 	}
 
+	// --- kafka
+	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+		kt.CurrentTx().CurrentCall().SetOutput(ret)
+		kt.CurrentTx().PopCall()
+	}
+	// --- end of kafka
+
 	return ret, address, contract.Gas, err
 }
 
@@ -503,3 +544,28 @@ func (evm *EVM) TxContext() evmtypes.TxContext {
 func (evm *EVM) IntraBlockState() evmtypes.IntraBlockState {
 	return evm.intraBlockState
 }
+
+// --- kafka
+func toOpId(calltype OpCode) evmtypes.OpId {
+	var code evmtypes.OpId
+
+	switch calltype {
+	case CALL:
+		code = evmtypes.CALL_OP
+	case CALLCODE:
+		code = evmtypes.CALLCODE_OP
+	case DELEGATECALL:
+		code = evmtypes.DELEGATECALL_OP
+	case STATICCALL:
+		code = evmtypes.STATICCALL_OP
+	case CREATE:
+		code = evmtypes.CREATE_OP
+	case CREATE2:
+		code = evmtypes.CREATE2_OP
+	default:
+	}
+
+	return code
+}
+
+// --- end of kafka

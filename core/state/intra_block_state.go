@@ -30,6 +30,7 @@ import (
 	"github.com/ledgerwatch/erigon/common/u256"
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/crypto"
 	"github.com/ledgerwatch/erigon/turbo/trie"
 )
@@ -85,6 +86,10 @@ type IntraBlockState struct {
 	trace          bool
 	accessList     *accessList
 	balanceInc     map[libcommon.Address]*BalanceIncrease // Map of balance increases (without first reading the account)
+
+	// --- kafka
+	kafkaTracer evmtypes.KafkaTracer
+	// --- end of kafka
 }
 
 // Create a new state from a given trie
@@ -100,6 +105,14 @@ func New(stateReader StateReader) *IntraBlockState {
 		balanceInc:        map[libcommon.Address]*BalanceIncrease{},
 	}
 }
+
+// --- kafka
+func (sdb *IntraBlockState) KafkaTracer() evmtypes.KafkaTracer { return sdb.kafkaTracer }
+func (sdb *IntraBlockState) SetKafkaTracer(tracer evmtypes.KafkaTracer) {
+	sdb.kafkaTracer = tracer
+}
+
+// --- end of kafka
 
 func (sdb *IntraBlockState) SetTrace(trace bool) {
 	sdb.trace = trace
