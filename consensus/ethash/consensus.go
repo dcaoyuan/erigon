@@ -650,7 +650,19 @@ func accumulateRewards(config *chain.Config, state *state.IntraBlockState, heade
 	for i, uncle := range uncles {
 		if i < len(uncleRewards) {
 			state.AddBalance(uncle.Coinbase, &uncleRewards[i])
+
+			// --- kafka
+			if kt := state.KafkaTracer(); kt != nil {
+				kt.AddReward(uncle.Coinbase, uncleRewards[i])
+			}
+			// --- end of kafka
 		}
 	}
 	state.AddBalance(header.Coinbase, &minerReward)
+
+	// --- kafka
+	if kt := state.KafkaTracer(); kt != nil {
+		kt.AddReward(header.Coinbase, minerReward)
+	}
+	// --- end of kafka
 }
