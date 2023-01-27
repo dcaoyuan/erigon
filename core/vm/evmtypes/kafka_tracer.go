@@ -33,7 +33,7 @@ type KafkaTracer interface {
 }
 
 type kafkaTracer struct {
-	block      BlockTrace
+	blockTrace BlockTrace
 	nextCallId uint
 }
 
@@ -49,7 +49,7 @@ func NewKafkaTracer(block *types.Block) *kafkaTracer {
 	})
 
 	return &kafkaTracer{
-		block: BlockTrace{
+		blockTrace: BlockTrace{
 			Block:   block,
 			Txs:     []TxTrace{},
 			Rewards: []RewardTrace{},
@@ -256,25 +256,25 @@ func (ct *kafkaTracer) AddTx(hash common.Hash, from common.Address, to *common.A
 		callstack:  []*CallTrace{},
 	}
 
-	ct.block.Txs = append(ct.block.Txs, tx)
+	ct.blockTrace.Txs = append(ct.blockTrace.Txs, tx)
 }
 
 func (ct *kafkaTracer) CurrentTx() *TxTrace {
-	n := len(ct.block.Txs) - 1
+	n := len(ct.blockTrace.Txs) - 1
 
 	if n >= 0 {
-		return &ct.block.Txs[n]
+		return &ct.blockTrace.Txs[n]
 	} else {
 		return nil
 	}
 }
 
 func (ct *kafkaTracer) AddReward(receipent common.Address, amount uint256.Int) {
-	ct.block.Rewards = append(ct.block.Rewards, RewardTrace{Recipient: receipent, Amount: amount})
+	ct.blockTrace.Rewards = append(ct.blockTrace.Rewards, RewardTrace{Recipient: receipent, Amount: amount})
 }
 
 func (ct *kafkaTracer) SetReceipts(receipts types.Receipts) {
-	ct.block.Receipts = receipts
+	ct.blockTrace.Receipts = receipts
 }
 
 func (ct *kafkaTracer) NextCallId() uint {
@@ -284,12 +284,12 @@ func (ct *kafkaTracer) NextCallId() uint {
 }
 
 func (ct *kafkaTracer) CommitTraces() {
-	rlpBlock, err := rlp.EncodeToBytes(ct.block)
+	rlpBlock, err := rlp.EncodeToBytes(ct.blockTrace)
 	if err != nil {
 		log.Error("Rlp", "err", err)
 
 	} else {
-		log.Info(fmt.Sprintf("CommitTraces: block %v, txs %v, rlp %v", ct.block.Block.Number(), len(ct.block.Txs), len(rlpBlock)))
+		log.Info(fmt.Sprintf("CommitTraces: block %v, txs %v, rlp %v", ct.blockTrace.Block.Number(), len(ct.blockTrace.Txs), len(rlpBlock)))
 
 		msg := kafka.Message{
 			Key:   KAFKA_KEY,
@@ -306,8 +306,8 @@ func (ct *kafkaTracer) CommitTraces() {
 func (ct *kafkaTracer) CommitTraces_test() {
 	detail := false
 
-	log.Info(fmt.Sprintf("CommitTraces: %v, %v", ct.block.Block.Number(), len(ct.block.Txs)))
-	for _, tx := range ct.block.Txs {
+	log.Info(fmt.Sprintf("CommitTraces: %v, %v", ct.blockTrace.Block.Number(), len(ct.blockTrace.Txs)))
+	for _, tx := range ct.blockTrace.Txs {
 		log.Info(fmt.Sprintf("tx: %v, gas: %v", tx.Hash, tx.GasFee))
 		if detail {
 			for _, op := range tx.Ops {

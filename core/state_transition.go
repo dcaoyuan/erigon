@@ -293,10 +293,12 @@ func (st *StateTransition) buyGas(gasBailout bool) error {
 	if subBalance {
 		st.state.SubBalance(st.msg.From(), mgval)
 
-		if kt := st.state.KafkaTracer(); kt != nil {
+		// --- kafka
+		if kt := st.state.KTracer(); kt != nil {
 			kt.CurrentTx().GasFee.Payer = st.msg.From()
 			kt.CurrentTx().GasFee.PayerAmount = *mgval
 		}
+		// --- end of kafka
 	}
 	return nil
 }
@@ -487,7 +489,7 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 		st.state.AddBalance(consensus.SystemAddress, amount)
 
 		// --- kafka
-		if kt := st.state.KafkaTracer(); kt != nil {
+		if kt := st.state.KTracer(); kt != nil {
 			kt.CurrentTx().GasFee.Payee = consensus.SystemAddress
 			kt.CurrentTx().GasFee.PayeeAmount = *amount
 		}
@@ -497,7 +499,7 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 		st.state.AddBalance(st.evm.Context().Coinbase, amount)
 
 		// --- kafka
-		if kt := st.state.KafkaTracer(); kt != nil {
+		if kt := st.state.KTracer(); kt != nil {
 			kt.CurrentTx().GasFee.Payee = st.evm.Context().Coinbase
 			kt.CurrentTx().GasFee.PayeeAmount = *amount
 		}
@@ -509,7 +511,7 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 		st.state.AddBalance(burntContractAddress, burnAmount)
 
 		// --- kafka
-		if kt := st.state.KafkaTracer(); kt != nil {
+		if kt := st.state.KTracer(); kt != nil {
 			kt.CurrentTx().GasFee.Burnt = burntContractAddress
 			kt.CurrentTx().GasFee.BurntAmount = *burnAmount
 		}
@@ -535,7 +537,7 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 	}
 
 	// --- kafka
-	if kt := st.state.KafkaTracer(); kt != nil {
+	if kt := st.state.KTracer(); kt != nil {
 		kt.CurrentTx().GasUsed = st.gasUsed()
 		kt.CurrentTx().Output = ret
 		if vmerr != nil {
@@ -567,7 +569,7 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	st.state.AddBalance(st.msg.From(), remaining)
 
 	// --- kafka
-	if kt := st.state.KafkaTracer(); kt != nil {
+	if kt := st.state.KTracer(); kt != nil {
 		amount := kt.CurrentTx().GasFee.PayerAmount
 		kt.CurrentTx().GasFee.PayerAmount = *new(uint256.Int).Sub(&amount, remaining)
 	}

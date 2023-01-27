@@ -57,7 +57,7 @@ func applyTransaction(config *chain.Config, engine consensus.EngineReader, gp *G
 	evm.Reset(txContext, ibs)
 
 	// --- kafka
-	if kt := evm.IntraBlockState().KafkaTracer(); kt != nil {
+	if kt := evm.IntraBlockState().KTracer(); kt != nil {
 		kt.AddTx(tx.Hash(), msg.From(), msg.To(), msg.Value(), msg.Data(), msg.GasPrice(), msg.Gas())
 	}
 	// --- end of kafka

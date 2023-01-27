@@ -88,7 +88,7 @@ type IntraBlockState struct {
 	balanceInc     map[libcommon.Address]*BalanceIncrease // Map of balance increases (without first reading the account)
 
 	// --- kafka
-	kafkaTracer evmtypes.KafkaTracer
+	kTracer *evmtypes.KafkaTracer
 	// --- end of kafka
 }
 
@@ -107,9 +107,10 @@ func New(stateReader StateReader) *IntraBlockState {
 }
 
 // --- kafka
-func (sdb *IntraBlockState) KafkaTracer() evmtypes.KafkaTracer { return sdb.kafkaTracer }
-func (sdb *IntraBlockState) SetKafkaTracer(tracer evmtypes.KafkaTracer) {
-	sdb.kafkaTracer = tracer
+// Should check if KTracer() return nil before use it, since a call may from ApplyTransaction for just a rpc call
+func (sdb *IntraBlockState) KTracer() evmtypes.KafkaTracer { return *sdb.kTracer }
+func (sdb *IntraBlockState) SetKTracer(tracer *evmtypes.KafkaTracer) {
+	sdb.kTracer = tracer
 }
 
 // --- end of kafka

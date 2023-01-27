@@ -280,7 +280,7 @@ func opKeccak256(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) (
 	}
 
 	// --- kafka
-	if kt := interpreter.evm.IntraBlockState().KafkaTracer(); kt != nil {
+	if kt := interpreter.evm.IntraBlockState().KTracer(); kt != nil {
 		kt.CurrentTx().AddOp(evmtypes.NewKeccak256Trace(data, interpreter.hasherBuf[:]))
 	}
 	// --- end of kafka
@@ -574,7 +574,7 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	interpreter.hasherBuf = loc.Bytes32()
 
 	// --- kafka
-	if kt := interpreter.evm.IntraBlockState().KafkaTracer(); kt != nil {
+	if kt := interpreter.evm.IntraBlockState().KTracer(); kt != nil {
 		oldVal := uint256.NewInt(0)
 		interpreter.evm.IntraBlockState().GetState(scope.Contract.Address(), &interpreter.hasherBuf, oldVal)
 		kt.CurrentTx().AddOp(evmtypes.NewSStoreTrace(loc, *oldVal, val))

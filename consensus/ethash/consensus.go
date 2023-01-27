@@ -652,7 +652,7 @@ func accumulateRewards(config *chain.Config, state *state.IntraBlockState, heade
 			state.AddBalance(uncle.Coinbase, &uncleRewards[i])
 
 			// --- kafka
-			if kt := state.KafkaTracer(); kt != nil {
+			if kt := state.KTracer(); kt != nil {
 				kt.AddReward(uncle.Coinbase, uncleRewards[i])
 			}
 			// --- end of kafka
@@ -661,7 +661,7 @@ func accumulateRewards(config *chain.Config, state *state.IntraBlockState, heade
 	state.AddBalance(header.Coinbase, &minerReward)
 
 	// --- kafka
-	if kt := state.KafkaTracer(); kt != nil {
+	if kt := state.KTracer(); kt != nil {
 		kt.AddReward(header.Coinbase, minerReward)
 	}
 	// --- end of kafka

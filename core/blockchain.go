@@ -238,7 +238,7 @@ func ExecuteBlockEphemerally(
 	ibs := state.New(stateReader)
 
 	// --- kafka
-	ibs.SetKafkaTracer(evmtypes.NewKafkaTracer(block))
+	ibs.SetKTracer(&vmConfig.KTracer)
 	// --- end of kafka
 
 	header := block.Header()
@@ -321,10 +321,7 @@ func ExecuteBlockEphemerally(
 	}
 
 	// --- kafka
-	if kt := ibs.KafkaTracer(); kt != nil {
-		kt.SetReceipts(receipts)
-		kt.CommitTraces()
-	}
+	vmConfig.KTracer.SetReceipts(receipts)
 	// --- end of kafka
 
 	blockLogs := ibs.Logs()

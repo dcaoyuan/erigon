@@ -188,7 +188,7 @@ func (evm *EVM) call(typ OpCode, caller ContractRef, addr libcommon.Address, inp
 	snapshot := evm.intraBlockState.Snapshot()
 
 	// --- kafka
-	if kt := evm.intraBlockState.KafkaTracer(); kt != nil {
+	if kt := evm.intraBlockState.KTracer(); kt != nil {
 		kt.CurrentTx().PushCall(kt.NextCallId(), toOpId(typ), caller.Address(), addr, uint(evm.interpreter.Depth()), input)
 	}
 	// --- end of kafka
@@ -221,7 +221,7 @@ func (evm *EVM) call(typ OpCode, caller ContractRef, addr libcommon.Address, inp
 		evm.context.Transfer(evm.intraBlockState, caller.Address(), addr, value, bailout)
 
 		// --- kafka
-		if kt := evm.intraBlockState.KafkaTracer(); kt != nil {
+		if kt := evm.intraBlockState.KTracer(); kt != nil {
 			kt.CurrentTx().CurrentCall().SetTransfer(caller.Address(), addr, *value)
 		}
 		// --- end of kafka
@@ -296,7 +296,7 @@ func (evm *EVM) call(typ OpCode, caller ContractRef, addr libcommon.Address, inp
 	}
 
 	// --- kafka
-	if kt := evm.intraBlockState.KafkaTracer(); kt != nil {
+	if kt := evm.intraBlockState.KTracer(); kt != nil {
 		kt.CurrentTx().CurrentCall().SetOutput(ret)
 		kt.CurrentTx().PopCall()
 	}
@@ -387,8 +387,8 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	snapshot := evm.intraBlockState.Snapshot()
 
 	// --- kafka
-	if kt := evm.intraBlockState.KafkaTracer(); kt != nil {
-		kt.CurrentTx().PushCall(evm.intraBlockState.KafkaTracer().NextCallId(), toOpId(typ), caller.Address(), address, uint(evm.interpreter.Depth()), codeAndHash.code)
+	if kt := evm.intraBlockState.KTracer(); kt != nil {
+		kt.CurrentTx().PushCall(kt.NextCallId(), toOpId(typ), caller.Address(), address, uint(evm.interpreter.Depth()), codeAndHash.code)
 	}
 	// --- end of kafka
 
@@ -399,7 +399,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	evm.context.Transfer(evm.intraBlockState, caller.Address(), address, value, false /* bailout */)
 
 	// --- kafka
-	if kt := evm.intraBlockState.KafkaTracer(); kt != nil {
+	if kt := evm.intraBlockState.KTracer(); kt != nil {
 		kt.CurrentTx().CurrentCall().SetTransfer(caller.Address(), address, *value)
 	}
 	// --- end of kafka
@@ -464,7 +464,7 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	}
 
 	// --- kafka
-	if kt := evm.intraBlockState.KafkaTracer(); kt != nil {
+	if kt := evm.intraBlockState.KTracer(); kt != nil {
 		kt.CurrentTx().CurrentCall().SetOutput(ret)
 		kt.CurrentTx().PopCall()
 	}
