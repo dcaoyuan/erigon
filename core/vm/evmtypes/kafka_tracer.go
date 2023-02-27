@@ -6,6 +6,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
+
+	"math/big"
 
 	"github.com/holiman/uint256"
 	"github.com/ledgerwatch/erigon-lib/common"
@@ -18,9 +21,9 @@ import (
 
 var once sync.Once
 var kafkaWriter *kafka.Writer
+var committedBlock *big.Int
 
 var KAFKA_SERVERS = "192.168.1.102:9092"
-var KAFKA_KEY = []byte("eth")
 var KAFKA_TOPIC = "eth-mainnet-incoming"
 
 type KafkaTracer interface {
@@ -39,6 +42,8 @@ type kafkaTracer struct {
 
 func NewKafkaTracer(block *types.Block) *kafkaTracer {
 	once.Do(func() {
+		checkCommittedBlockNumber()
+
 		kafkaWriter = &kafka.Writer{
 			Addr:         kafka.TCP(KAFKA_SERVERS),
 			Topic:        KAFKA_TOPIC,
@@ -55,6 +60,38 @@ func NewKafkaTracer(block *types.Block) *kafkaTracer {
 			Rewards: []RewardTrace{},
 		},
 		nextCallId: 0,
+	}
+}
+
+func checkCommittedBlockNumber() {
+	conn, err := kafka.DialLeader(context.Background(), "tcp", KAFKA_SERVERS, KAFKA_TOPIC, 0)
+	if err != nil {
+		log.Error("failed to dial leader:", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	lastOffset, err := conn.ReadLastOffset()
+	if err != nil {
+		log.Error("failed to read last offset:", err)
+	}
+
+	if lastOffset > 0 {
+		// seeking to the latest means waiting for new messages; -1 will read the latest produced message
+		conn.Seek(1, kafka.SeekEnd)
+		msg, err := conn.ReadMessage(1e6) // 1MB max
+		if err != nil {
+			log.Error("failed to read:", err)
+		} else {
+			committedBlock = new(big.Int).SetBytes(msg.Key)
+		}
+	} else {
+		committedBlock = new(big.Int).SetInt64(-1)
+	}
+
+	log.Info(fmt.Sprintf("committedBlock is %d\n", committedBlock))
+
+	if err := conn.Close(); err != nil {
+		log.Error("failed to close connection:", err)
 	}
 }
 
@@ -284,22 +321,27 @@ func (ct *kafkaTracer) NextCallId() uint {
 }
 
 func (ct *kafkaTracer) CommitTraces() {
-	rlpBlock, err := rlp.EncodeToBytes(ct.blockTrace)
-	if err != nil {
-		log.Error("Rlp", "err", err)
+	blockNumber := ct.blockTrace.Block.Number()
+	if blockNumber.Cmp(committedBlock) == 1 {
+		rlpBlock, err := rlp.EncodeToBytes(ct.blockTrace)
+		if err != nil {
+			log.Error("Rlp", "err", err)
+		} else {
+			msg := kafka.Message{
+				Key:   blockNumber.Bytes(),
+				Value: rlpBlock,
+			}
+
+			err = kafkaWriter.WriteMessages(context.Background(), msg)
+			if err != nil {
+				log.Error("Kafka", "err", err)
+			} else {
+				log.Info(fmt.Sprintf("CommitTraces: block %v, txs %v, rlp %v", blockNumber, len(ct.blockTrace.Txs), len(rlpBlock)))
+			}
+		}
 
 	} else {
-		log.Info(fmt.Sprintf("CommitTraces: block %v, txs %v, rlp %v", ct.blockTrace.Block.Number(), len(ct.blockTrace.Txs), len(rlpBlock)))
-
-		msg := kafka.Message{
-			Key:   KAFKA_KEY,
-			Value: rlpBlock,
-		}
-
-		err = kafkaWriter.WriteMessages(context.Background(), msg)
-		if err != nil {
-			log.Error("Kafka", "err", err)
-		}
+		log.Info(fmt.Sprintf("SkipTraces: block %v, txs %v", blockNumber, len(ct.blockTrace.Txs)))
 	}
 }
 
