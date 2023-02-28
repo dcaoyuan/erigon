@@ -34,6 +34,7 @@ import (
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
 	"github.com/ledgerwatch/erigon/core/vm"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/eth/calltracer"
 	"github.com/ledgerwatch/erigon/eth/ethconfig"
 	"github.com/ledgerwatch/erigon/eth/ethconfig/estimate"
@@ -448,6 +449,11 @@ Loop:
 		writeChangeSets := nextStagesExpectData || blockNum > cfg.prune.History.PruneTo(to)
 		writeReceipts := nextStagesExpectData || blockNum > cfg.prune.Receipts.PruneTo(to)
 		writeCallTraces := nextStagesExpectData || blockNum > cfg.prune.CallTraces.PruneTo(to)
+
+		// --- kafka
+		cfg.vmConfig.KTracer = evmtypes.NewKafkaTracer(block)
+		// --- end of kafka
+
 		if err = executeBlock(block, tx, batch, cfg, *cfg.vmConfig, writeChangeSets, writeReceipts, writeCallTraces, initialCycle, stateStream); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				log.Warn(fmt.Sprintf("[%s] Execution failed", logPrefix), "block", blockNum, "hash", block.Hash().String(), "err", err)
@@ -462,6 +468,10 @@ Loop:
 			break Loop
 		}
 		stageProgress = blockNum
+
+		// --- kafka
+		cfg.vmConfig.KTracer.CommitTraces()
+		// --- end of kafka
 
 		shouldUpdateProgress := batch.BatchSize() >= int(cfg.batchSize)
 		if shouldUpdateProgress {

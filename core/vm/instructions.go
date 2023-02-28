@@ -27,6 +27,7 @@ import (
 
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/core/types"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/params"
 )
 
@@ -277,6 +278,12 @@ func opKeccak256(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) (
 	if _, err := interpreter.hasher.Read(interpreter.hasherBuf[:]); err != nil {
 		panic(err)
 	}
+
+	// --- kafka
+	if kt := interpreter.evm.IntraBlockState().KTracer(); kt != nil {
+		kt.CurrentTx().AddOp(evmtypes.NewKeccak256Trace(data, interpreter.hasherBuf[:]))
+	}
+	// --- end of kafka
 
 	size.SetBytes(interpreter.hasherBuf[:])
 	return nil, nil
@@ -565,6 +572,15 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, scope *ScopeContext) ([]b
 	loc := scope.Stack.Pop()
 	val := scope.Stack.Pop()
 	interpreter.hasherBuf = loc.Bytes32()
+
+	// --- kafka
+	if kt := interpreter.evm.IntraBlockState().KTracer(); kt != nil {
+		oldVal := uint256.NewInt(0)
+		interpreter.evm.IntraBlockState().GetState(scope.Contract.Address(), &interpreter.hasherBuf, oldVal)
+		kt.CurrentTx().AddOp(evmtypes.NewSStoreTrace(loc, *oldVal, val))
+	}
+	// --- end of kafka
+
 	interpreter.evm.IntraBlockState().SetState(scope.Contract.Address(), &interpreter.hasherBuf, val)
 	return nil, nil
 }
