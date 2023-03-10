@@ -334,6 +334,7 @@ func (ct *kafkaTracer) CommitTraces() {
 		msg := kafka.Message{
 			Key:   blockNumber.Bytes(),
 			Value: rlpBlock,
+			Time:  makeTime(blockNumber.Int64()),
 		}
 
 		err = kafkaWriter.WriteMessages(context.Background(), msg)
@@ -366,4 +367,19 @@ func (ct *kafkaTracer) CommitTraces_test() {
 			}
 		}
 	}
+}
+
+// see kafka.makeTime
+func makeTime(t int64) time.Time {
+	if t <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(t/1000, (t%1000)*int64(time.Millisecond)).UTC()
+}
+
+func timestamp(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano() / int64(time.Millisecond)
 }

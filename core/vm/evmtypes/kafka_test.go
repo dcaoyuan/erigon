@@ -14,12 +14,14 @@ import (
 	kafka "github.com/segmentio/kafka-go"
 )
 
-func TestReader(*testing.T) {
+func TestKafka(*testing.T) {
 	blockNumber, _ := new(big.Int).SetString("16714452", 10)
+	blockNumberAsTime := makeTime(blockNumber.Int64())
+	blockNumberAsTimestamp := timestamp(blockNumberAsTime)
 
-	z := new(big.Int).SetBytes(blockNumber.Bytes()) // yes, unsigned
-	fmt.Printf("blockNumber [% x], %d\n", blockNumber.Bytes(), z)
-	// new java.math.BigInteger(1, bytes)
+	blockNumberFromBytes := new(big.Int).SetBytes(blockNumber.Bytes()) // yes, big use unsigned
+	fmt.Printf("blockNumber [% x], %d, %d\n", blockNumber.Bytes(), blockNumberFromBytes, blockNumberAsTimestamp)
+	// --- for java, use: new java.math.BigInteger(1, bytes)
 
 	conn, err := kafka.DialLeader(context.Background(), "tcp", "192.168.1.102:9092", "eth-main", 0)
 	if err != nil {
