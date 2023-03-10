@@ -82,7 +82,7 @@ func checkCommittedBlockNumber() {
 		if err != nil {
 			log.Error("failed to read:", err)
 		} else {
-			committedBlock = new(big.Int).SetBytes(msg.Key)
+			committedBlock = new(big.Int).SetInt64(timestamp(msg.Time))
 		}
 	} else {
 		committedBlock = new(big.Int).SetInt64(-1)
@@ -333,7 +333,6 @@ func (ct *kafkaTracer) CommitTraces() {
 	} else {
 		msg := kafka.Message{
 			Time:  makeTime(blockNumber.Int64()),
-			Key:   blockNumber.Bytes(),
 			Value: rlpBlock,
 		}
 

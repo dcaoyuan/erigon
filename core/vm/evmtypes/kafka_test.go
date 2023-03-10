@@ -47,7 +47,7 @@ func TestKafka(*testing.T) {
 		if err != nil {
 			log.Fatal("failed to read:", err)
 		} else {
-			fmt.Printf("msg %s\n", msg.Key)
+			fmt.Printf("msg %d\n", timestamp(msg.Time))
 		}
 	}
 
