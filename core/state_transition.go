@@ -231,6 +231,13 @@ func (st *StateTransition) buyGas(gasBailout bool) error {
 	st.initialGas = st.msg.Gas()
 	if subBalance {
 		st.state.SubBalance(st.msg.From(), mgval)
+
+		// --- kafka
+		if kt := st.state.KTracer(); kt != nil {
+			kt.CurrentTx().GasFee.Payer = st.msg.From()
+			kt.CurrentTx().GasFee.PayerAmount = *mgval
+		}
+		// --- end of kafka
 	}
 	return nil
 }
@@ -419,13 +426,35 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 	amount.Mul(amount, effectiveTip) // gasUsed * effectiveTip = how much goes to the block producer (miner, validator)
 	if st.isParlia {
 		st.state.AddBalance(consensus.SystemAddress, amount)
+
+		// --- kafka
+		if kt := st.state.KTracer(); kt != nil {
+			kt.CurrentTx().GasFee.Payee = consensus.SystemAddress
+			kt.CurrentTx().GasFee.PayeeAmount = *amount
+		}
+		// --- end of kafka
+
 	} else {
 		st.state.AddBalance(st.evm.Context().Coinbase, amount)
+
+		// --- kafka
+		if kt := st.state.KTracer(); kt != nil {
+			kt.CurrentTx().GasFee.Payee = st.evm.Context().Coinbase
+			kt.CurrentTx().GasFee.PayeeAmount = *amount
+		}
+		// --- end of kafka
 	}
 	if !msg.IsFree() && rules.IsLondon && rules.IsEip1559FeeCollector {
 		burntContractAddress := *st.evm.ChainConfig().Eip1559FeeCollector
 		burnAmount := new(uint256.Int).Mul(new(uint256.Int).SetUint64(st.gasUsed()), st.evm.Context().BaseFee)
 		st.state.AddBalance(burntContractAddress, burnAmount)
+
+		// --- kafka
+		if kt := st.state.KTracer(); kt != nil {
+			kt.CurrentTx().GasFee.Burnt = burntContractAddress
+			kt.CurrentTx().GasFee.BurntAmount = *burnAmount
+		}
+		// --- end of kafka
 	}
 	if st.isBor {
 		// Deprecating transfer log and will be removed in future fork. PLEASE DO NOT USE this transfer log going forward. Parameters won't get updated as expected going forward with EIP1559
@@ -446,6 +475,19 @@ func (st *StateTransition) TransitionDb(refunds bool, gasBailout bool) (*Executi
 		)
 	}
 
+	// --- kafka
+	if kt := st.state.KTracer(); kt != nil {
+		kt.CurrentTx().GasUsed = st.gasUsed()
+		kt.CurrentTx().Output = ret
+		if vmerr != nil {
+			kt.CurrentTx().Err = vmerr.Error()
+			kt.CurrentTx().Status = 0
+		} else {
+			kt.CurrentTx().Status = 1
+		}
+	}
+	// --- end of kafka
+
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
 		Err:        vmerr,
@@ -464,6 +506,13 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 	// Return ETH for remaining gas, exchanged at the original rate.
 	remaining := new(uint256.Int).Mul(new(uint256.Int).SetUint64(st.gas), st.gasPrice)
 	st.state.AddBalance(st.msg.From(), remaining)
+
+	// --- kafka
+	if kt := st.state.KTracer(); kt != nil {
+		amount := kt.CurrentTx().GasFee.PayerAmount
+		kt.CurrentTx().GasFee.PayerAmount = *new(uint256.Int).Sub(&amount, remaining)
+	}
+	// --- end of kafka
 
 	// Also return remaining gas to the block gas counter so it is
 	// available for the next transaction.

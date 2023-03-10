@@ -2,8 +2,10 @@ module github.com/ledgerwatch/erigon
 
 go 1.18
 
+require github.com/segmentio/kafka-go v0.4.39
+
 require (
-	github.com/ledgerwatch/erigon-lib v0.0.0-20230306114514-2c4c92fd1fce
+	github.com/ledgerwatch/erigon-lib v0.0.0-20230307061443-6dbae5c5877a
 	github.com/ledgerwatch/erigon-snapshot v1.1.1-0.20230306083105-1391330d62a3
 	github.com/ledgerwatch/log/v3 v3.7.0
 	github.com/ledgerwatch/secp256k1 v1.0.0
@@ -198,6 +200,7 @@ require (
 	github.com/multiformats/go-varint v0.0.7 // indirect
 	github.com/onsi/ginkgo/v2 v2.8.0 // indirect
 	github.com/opencontainers/runtime-spec v1.0.2 // indirect
+	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pion/datachannel v1.5.2 // indirect
 	github.com/pion/dtls/v2 v2.2.4 // indirect
 	github.com/pion/ice/v2 v2.2.6 // indirect
