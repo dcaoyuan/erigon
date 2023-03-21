@@ -238,7 +238,7 @@ func ExecuteBlockEphemerally(
 	ibs := state.New(stateReader)
 
 	// --- kafka
-	ibs.SetKTracer(&vmConfig.KTracer)
+	ibs.SetKTracer(vmConfig.KTracer)
 	// --- end of kafka
 
 	header := block.Header()

@@ -102,6 +102,6 @@ type IntraBlockState interface {
 
 	// --- kafka
 	KTracer() KafkaTracer
-	SetKTracer(tracer *KafkaTracer)
+	SetKTracer(tracer KafkaTracer)
 	// --- end of kafka
 }
