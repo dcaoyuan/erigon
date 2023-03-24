@@ -32,7 +32,8 @@ type KafkaTracer interface {
 	SetReceipts(receipts types.Receipts)
 	AddReward(Recipient common.Address, Amount uint256.Int)
 	NextCallId() uint
-	CommitTraces()
+	BlockTrace() BlockTrace
+	CommitTrace()
 }
 
 type kafkaTracer struct {
@@ -314,13 +315,17 @@ func (kt *kafkaTracer) SetReceipts(receipts types.Receipts) {
 	kt.blockTrace.Receipts = receipts
 }
 
+func (kt *kafkaTracer) BlockTrace() BlockTrace {
+	return kt.blockTrace
+}
+
 func (kt *kafkaTracer) NextCallId() uint {
 	kt.nextCallId++
 
 	return kt.nextCallId
 }
 
-func (kt *kafkaTracer) CommitTraces() {
+func (kt *kafkaTracer) CommitTrace() {
 	blockNumber := kt.blockTrace.Block.Number()
 	if blockNumber.Cmp(committedBlock) <= 0 {
 		log.Info(fmt.Sprintf("SkipTraces: block %v, txs %v", blockNumber, len(kt.blockTrace.Txs)))

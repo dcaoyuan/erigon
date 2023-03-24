@@ -470,7 +470,7 @@ Loop:
 		stageProgress = blockNum
 
 		// --- kafka
-		cfg.vmConfig.KTracer.CommitTraces()
+		cfg.vmConfig.KTracer.CommitTrace()
 		// --- end of kafka
 
 		shouldUpdateProgress := batch.BatchSize() >= int(cfg.batchSize)

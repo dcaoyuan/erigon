@@ -321,7 +321,9 @@ func ExecuteBlockEphemerally(
 	}
 
 	// --- kafka
-	vmConfig.KTracer.SetReceipts(receipts)
+	if kt := ibs.KTracer(); kt != nil {
+		kt.SetReceipts(receipts)
+	}
 	// --- end of kafka
 
 	blockLogs := ibs.Logs()
