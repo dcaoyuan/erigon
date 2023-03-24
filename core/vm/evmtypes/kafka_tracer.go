@@ -275,7 +275,7 @@ func (tx *TxTrace) CurrentCall() *CallTrace {
 
 // --- implementation of KafkaTracer interface
 
-func (ct *kafkaTracer) AddTx(hash common.Hash, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasPrice *uint256.Int, gas uint64) {
+func (kt *kafkaTracer) AddTx(hash common.Hash, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasPrice *uint256.Int, gas uint64) {
 	inCp := make([]byte, len(input))
 	copy(inCp, input)
 
@@ -293,41 +293,41 @@ func (ct *kafkaTracer) AddTx(hash common.Hash, from common.Address, to *common.A
 		callstack:  []*CallTrace{},
 	}
 
-	ct.blockTrace.Txs = append(ct.blockTrace.Txs, tx)
+	kt.blockTrace.Txs = append(kt.blockTrace.Txs, tx)
 }
 
-func (ct *kafkaTracer) CurrentTx() *TxTrace {
-	n := len(ct.blockTrace.Txs) - 1
+func (kt *kafkaTracer) CurrentTx() *TxTrace {
+	n := len(kt.blockTrace.Txs) - 1
 
 	if n >= 0 {
-		return &ct.blockTrace.Txs[n]
+		return &kt.blockTrace.Txs[n]
 	} else {
 		return nil
 	}
 }
 
-func (ct *kafkaTracer) AddReward(receipent common.Address, amount uint256.Int) {
-	ct.blockTrace.Rewards = append(ct.blockTrace.Rewards, RewardTrace{Recipient: receipent, Amount: amount})
+func (kt *kafkaTracer) AddReward(receipent common.Address, amount uint256.Int) {
+	kt.blockTrace.Rewards = append(kt.blockTrace.Rewards, RewardTrace{Recipient: receipent, Amount: amount})
 }
 
-func (ct *kafkaTracer) SetReceipts(receipts types.Receipts) {
-	ct.blockTrace.Receipts = receipts
+func (kt *kafkaTracer) SetReceipts(receipts types.Receipts) {
+	kt.blockTrace.Receipts = receipts
 }
 
-func (ct *kafkaTracer) NextCallId() uint {
-	ct.nextCallId++
+func (kt *kafkaTracer) NextCallId() uint {
+	kt.nextCallId++
 
-	return ct.nextCallId
+	return kt.nextCallId
 }
 
-func (ct *kafkaTracer) CommitTraces() {
-	blockNumber := ct.blockTrace.Block.Number()
+func (kt *kafkaTracer) CommitTraces() {
+	blockNumber := kt.blockTrace.Block.Number()
 	if blockNumber.Cmp(committedBlock) <= 0 {
-		log.Info(fmt.Sprintf("SkipTraces: block %v, txs %v", blockNumber, len(ct.blockTrace.Txs)))
+		log.Info(fmt.Sprintf("SkipTraces: block %v, txs %v", blockNumber, len(kt.blockTrace.Txs)))
 		return
 	}
 
-	rlpBlock, err := rlp.EncodeToBytes(ct.blockTrace)
+	rlpBlock, err := rlp.EncodeToBytes(kt.blockTrace)
 	if err != nil {
 		log.Error("Rlp", "err", err)
 	} else {
@@ -340,16 +340,16 @@ func (ct *kafkaTracer) CommitTraces() {
 		if err != nil {
 			log.Error("Kafka", "err", err)
 		} else {
-			log.Info(fmt.Sprintf("CommitTraces: block %v, txs %v, rlp %v", blockNumber, len(ct.blockTrace.Txs), len(rlpBlock)))
+			log.Info(fmt.Sprintf("CommitTraces: block %v, txs %v, rlp %v", blockNumber, len(kt.blockTrace.Txs), len(rlpBlock)))
 		}
 	}
 }
 
-func (ct *kafkaTracer) CommitTraces_test() {
+func (kt *kafkaTracer) CommitTraces_test() {
 	detail := false
 
-	log.Info(fmt.Sprintf("CommitTraces: %v, %v", ct.blockTrace.Block.Number(), len(ct.blockTrace.Txs)))
-	for _, tx := range ct.blockTrace.Txs {
+	log.Info(fmt.Sprintf("CommitTraces: %v, %v", kt.blockTrace.Block.Number(), len(kt.blockTrace.Txs)))
+	for _, tx := range kt.blockTrace.Txs {
 		log.Info(fmt.Sprintf("tx: %v, gas: %v", tx.Hash, tx.GasFee))
 		if detail {
 			for _, op := range tx.Ops {
