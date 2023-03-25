@@ -21,6 +21,8 @@ import (
 	"errors"
 
 	"github.com/ledgerwatch/erigon-lib/kv"
+
+	"github.com/segmentio/kafka-go"
 )
 
 // DESCRIBED: For info on database buckets see docs/programmers_guide/db_walkthrough.MD
@@ -84,6 +86,10 @@ type DbWithPendingMutations interface {
 
 	Rollback()
 	BatchSize() int
+
+	// --- kafka
+	AddTrace(trace kafka.Message)
+	// --- end of kafka
 }
 
 type HasRwKV interface {

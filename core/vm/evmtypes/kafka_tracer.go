@@ -3,12 +3,8 @@
 package evmtypes
 
 import (
-	"context"
 	"fmt"
-	"sync"
 	"time"
-
-	"math/big"
 
 	"github.com/holiman/uint256"
 	"github.com/ledgerwatch/erigon-lib/common"
@@ -16,24 +12,17 @@ import (
 	"github.com/ledgerwatch/erigon/rlp"
 	"github.com/ledgerwatch/log/v3"
 
-	kafka "github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go"
 )
 
-var once sync.Once
-var kafkaWriter *kafka.Writer
-var committedBlock *big.Int
-
-var KAFKA_SERVERS = "192.168.1.102:9092"
-var KAFKA_TOPIC = "eth-mainnet-incoming"
-
+// Also see erigon/ethdb/olddb/mapmutation.go
 type KafkaTracer interface {
 	AddTx(hash common.Hash, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasPrice *uint256.Int, gas uint64)
 	CurrentTx() *TxTrace
 	SetReceipts(receipts types.Receipts)
 	AddReward(Recipient common.Address, Amount uint256.Int)
 	NextCallId() uint
-	BlockTrace() BlockTrace
-	CommitTrace()
+	EncodeTrace() (*kafka.Message, error)
 }
 
 type kafkaTracer struct {
@@ -42,18 +31,6 @@ type kafkaTracer struct {
 }
 
 func NewKafkaTracer(block *types.Block) *kafkaTracer {
-	once.Do(func() {
-		checkCommittedBlockNumber()
-
-		kafkaWriter = &kafka.Writer{
-			Addr:         kafka.TCP(KAFKA_SERVERS),
-			Topic:        KAFKA_TOPIC,
-			RequiredAcks: kafka.RequireOne,
-			BatchSize:    1,           // make sure send each one to kafka at once to complete block execution.
-			BatchBytes:   209_715_200, // 200M (pre-compressed). kafka-go checks if each message is less than this.
-		}
-	})
-
 	return &kafkaTracer{
 		blockTrace: BlockTrace{
 			Block:   block,
@@ -61,38 +38,6 @@ func NewKafkaTracer(block *types.Block) *kafkaTracer {
 			Rewards: []RewardTrace{},
 		},
 		nextCallId: 0,
-	}
-}
-
-func checkCommittedBlockNumber() {
-	conn, err := kafka.DialLeader(context.Background(), "tcp", KAFKA_SERVERS, KAFKA_TOPIC, 0)
-	if err != nil {
-		log.Error("failed to dial leader:", err)
-	}
-
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	lastOffset, err := conn.ReadLastOffset()
-	if err != nil {
-		log.Error("failed to read last offset:", err)
-	}
-
-	if lastOffset > 0 {
-		// seeking to the latest means waiting for new messages; -1 will read the latest produced message
-		conn.Seek(1, kafka.SeekEnd)
-		msg, err := conn.ReadMessage(1e6) // 1MB max
-		if err != nil {
-			log.Error("failed to read:", err)
-		} else {
-			committedBlock = new(big.Int).SetInt64(timestamp(msg.Time))
-		}
-	} else {
-		committedBlock = new(big.Int).SetInt64(-1)
-	}
-
-	log.Info(fmt.Sprintf("committedBlock is %d", committedBlock))
-
-	if err := conn.Close(); err != nil {
-		log.Error("failed to close connection:", err)
 	}
 }
 
@@ -325,28 +270,17 @@ func (kt *kafkaTracer) NextCallId() uint {
 	return kt.nextCallId
 }
 
-func (kt *kafkaTracer) CommitTrace() {
+func (kt *kafkaTracer) EncodeTrace() (*kafka.Message, error) {
 	blockNumber := kt.blockTrace.Block.Number()
-	if blockNumber.Cmp(committedBlock) <= 0 {
-		log.Info(fmt.Sprintf("SkipTraces: block %v, txs %v", blockNumber, len(kt.blockTrace.Txs)))
-		return
-	}
 
 	rlpBlock, err := rlp.EncodeToBytes(kt.blockTrace)
 	if err != nil {
-		log.Error("Rlp", "err", err)
+		return nil, err
 	} else {
-		msg := kafka.Message{
+		return &kafka.Message{
 			Time:  makeTime(blockNumber.Int64()),
 			Value: rlpBlock,
-		}
-
-		err = kafkaWriter.WriteMessages(context.Background(), msg)
-		if err != nil {
-			log.Error("Kafka", "err", err)
-		} else {
-			log.Info(fmt.Sprintf("CommitTraces: block %v, txs %v, rlp %v", blockNumber, len(kt.blockTrace.Txs), len(rlpBlock)))
-		}
+		}, nil
 	}
 }
 

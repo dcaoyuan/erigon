@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 	"unsafe"
@@ -13,6 +14,8 @@ import (
 	"github.com/ledgerwatch/log/v3"
 
 	"github.com/ledgerwatch/erigon/ethdb"
+
+	"github.com/segmentio/kafka-go"
 )
 
 type mapmutation struct {
@@ -24,7 +27,18 @@ type mapmutation struct {
 	size   int
 	count  uint64
 	tmpdir string
+
+	traces []kafka.Message
 }
+
+// --- kafka
+var once sync.Once
+var kafkaWriter *kafka.Writer
+
+var KAFKA_SERVERS = "192.168.1.102:9092"
+var KAFKA_TOPIC = "eth-mainnet-incoming"
+
+// --- end of kafka
 
 // NewBatch - starts in-mem batch
 //
@@ -35,6 +49,18 @@ type mapmutation struct {
 // ... some calculations on `batch`
 // batch.Commit()
 func NewHashBatch(tx kv.RwTx, quit <-chan struct{}, tmpdir string) *mapmutation {
+	once.Do(func() {
+		//checkCommittedBlockNumber()
+
+		kafkaWriter = &kafka.Writer{
+			Addr:         kafka.TCP(KAFKA_SERVERS),
+			Topic:        KAFKA_TOPIC,
+			RequiredAcks: kafka.RequireOne,
+			BatchSize:    1,           // make sure send each one to kafka at once to complete block execution.
+			BatchBytes:   209_715_200, // 200M (pre-compressed). kafka-go checks if each message is less than this.
+		}
+	})
+
 	clean := func() {}
 	if quit == nil {
 		ch := make(chan struct{})
@@ -48,8 +74,56 @@ func NewHashBatch(tx kv.RwTx, quit <-chan struct{}, tmpdir string) *mapmutation 
 		quit:   quit,
 		clean:  clean,
 		tmpdir: tmpdir,
+
+		// --- kafka
+		traces: []kafka.Message{},
+		// --- end of kafka
 	}
 }
+
+// --- kafka
+func (m *mapmutation) AddTrace(trace kafka.Message) {
+	m.traces = append(m.traces, trace)
+}
+
+func timestamp(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano() / int64(time.Millisecond)
+}
+
+func checkCommittedBlockNumber() (*big.Int, error) {
+	conn, err := kafka.DialLeader(context.Background(), "tcp", KAFKA_SERVERS, KAFKA_TOPIC, 0)
+	if err != nil {
+		log.Error("failed to dial leader:", err)
+	}
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	lastOffset, err := conn.ReadLastOffset()
+	if err != nil {
+		log.Error("failed to read last offset:", err)
+	}
+
+	if lastOffset > 0 {
+		// seeking to the latest means waiting for new messages; -1 will read the latest produced message
+		conn.Seek(1, kafka.SeekEnd)
+		msg, err := conn.ReadMessage(1e6) // 1MB max
+		if err != nil {
+			log.Error("failed to read:", err)
+		} else {
+			return new(big.Int).SetInt64(timestamp(msg.Time)), nil
+		}
+	} else {
+		return new(big.Int).SetInt64(-1), nil
+	}
+
+	//log.Info(fmt.Sprintf("committedBlock is %d", committedBlock))
+	return nil, nil
+}
+
+// --- end of kafka
 
 func (m *mapmutation) RwKV() kv.RwDB {
 	if casted, ok := m.db.(ethdb.HasRwKV); ok {
@@ -252,6 +326,20 @@ func (m *mapmutation) Commit() error {
 		return err
 	}
 
+	// --- kafka
+	log.Info("Writing to kafka ...", "blocks", len(m.traces))
+	for _, msg := range m.traces {
+		err := kafkaWriter.WriteMessages(context.Background(), msg)
+
+		blocknumber := timestamp(msg.Time)
+		if err != nil {
+			log.Error("Kafka error at block", "block", blocknumber, "err", err)
+		} else {
+			log.Info(fmt.Sprintf("CommitTrace: block %v, rlp %v", blocknumber, len(msg.Value)))
+		}
+	}
+	// end of kafka
+
 	m.puts = map[string]map[string][]byte{}
 	m.size = 0
 	m.count = 0
@@ -267,6 +355,10 @@ func (m *mapmutation) Rollback() {
 	m.count = 0
 	m.size = 0
 	m.clean()
+
+	// --- kafka
+	m.traces = []kafka.Message{}
+	// --- end of kafka
 }
 
 func (m *mapmutation) Close() {

@@ -11,7 +11,7 @@ import (
 
 	"math/big"
 
-	kafka "github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go"
 )
 
 func TestKafka(*testing.T) {

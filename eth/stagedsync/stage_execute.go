@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"time"
 
@@ -397,9 +398,10 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, tx kv.RwTx, toBlock uint
 	if to <= s.BlockNumber {
 		return nil
 	}
-	if !quiet && to > s.BlockNumber+16 {
-		log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "from", s.BlockNumber, "to", to)
-	}
+	//if !quiet && to > s.BlockNumber+16 {
+	//	log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "from", s.BlockNumber, "to", to)
+	//}
+	log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "tx", reflect.TypeOf(tx), "from", s.BlockNumber, "to", to)
 	stateStream := !initialCycle && cfg.stateStream && to-s.BlockNumber < stateStreamLimit
 
 	// changes are stored through memory buffer
@@ -451,6 +453,7 @@ Loop:
 		writeCallTraces := nextStagesExpectData || blockNum > cfg.prune.CallTraces.PruneTo(to)
 
 		// --- kafka
+		//_, notInMemDb := tx.(*mdbx.MdbxTx)
 		cfg.vmConfig.KTracer = evmtypes.NewKafkaTracer(block)
 		// --- end of kafka
 
@@ -470,7 +473,11 @@ Loop:
 		stageProgress = blockNum
 
 		// --- kafka
-		cfg.vmConfig.KTracer.CommitTrace()
+		if msg, err := cfg.vmConfig.KTracer.EncodeTrace(); err == nil {
+			batch.AddTrace(*msg)
+		} else {
+			log.Error("EncodeTrace", "err", err)
+		}
 		// --- end of kafka
 
 		shouldUpdateProgress := batch.BatchSize() >= int(cfg.batchSize)
