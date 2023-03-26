@@ -20,6 +20,7 @@ import (
 	"github.com/ledgerwatch/erigon-lib/common/length"
 	"github.com/ledgerwatch/erigon-lib/etl"
 	"github.com/ledgerwatch/erigon-lib/kv"
+	"github.com/ledgerwatch/erigon-lib/kv/memdb"
 	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
 	"github.com/ledgerwatch/erigon-lib/kv/temporal/historyv2"
 	libstate "github.com/ledgerwatch/erigon-lib/state"
@@ -418,12 +419,22 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, tx kv.RwTx, toBlock uint
 
 	var stoppedErr error
 
+	// --- kafka
+	// If isMemDb, it's called from stage_headers by cfg.forkValidator.ValidatePayload
+	// and will commit in stage_headers by cfg.forkValidator.FlushExtendingFork if fork choice update
+	// Actually, memdb commit and rollback will be handled by fork_validator
+	_, isMemDb := tx.(*memdb.MemoryMutation)
+	// --- end of kafka
+
 	var batch ethdb.DbWithPendingMutations
 	// state is stored through ethdb batches
 	batch = olddb.NewHashBatch(tx, quit, cfg.dirs.Tmp)
 	// avoids stacking defers within the loop
 	defer func() {
 		batch.Rollback()
+		if !isMemDb { // batch.Rollback() do not rollback it's underlying db, i.e. if this db is memdb, won't rollback it.
+			evmtypes.GetKafkaTraces().RollbackTraces()
+		}
 	}()
 
 Loop:
@@ -453,7 +464,6 @@ Loop:
 		writeCallTraces := nextStagesExpectData || blockNum > cfg.prune.CallTraces.PruneTo(to)
 
 		// --- kafka
-		//_, notInMemDb := tx.(*mdbx.MdbxTx)
 		cfg.vmConfig.KTracer = evmtypes.NewKafkaTracer(block)
 		// --- end of kafka
 
@@ -473,10 +483,10 @@ Loop:
 		stageProgress = blockNum
 
 		// --- kafka
-		if msg, err := cfg.vmConfig.KTracer.EncodeTrace(); err == nil {
-			batch.AddTrace(*msg)
-		} else {
+		if msg, err := cfg.vmConfig.KTracer.EncodeTrace(); err != nil {
 			log.Error("EncodeTrace", "err", err)
+		} else {
+			evmtypes.GetKafkaTraces().AddTrace(*msg)
 		}
 		// --- end of kafka
 
@@ -501,6 +511,13 @@ Loop:
 				// TODO: This creates stacked up deferrals
 				defer tx.Rollback()
 			}
+
+			// --- kafka
+			if !isMemDb {
+				evmtypes.GetKafkaTraces().CommitTraces()
+			}
+			// --- end of kafka
+
 			batch = olddb.NewHashBatch(tx, quit, cfg.dirs.Tmp)
 		}
 
@@ -533,6 +550,12 @@ Loop:
 			return err
 		}
 	}
+
+	// --- kafka
+	if !isMemDb {
+		evmtypes.GetKafkaTraces().CommitTraces()
+	}
+	// --- end of kafka
 
 	if !quiet {
 		log.Info(fmt.Sprintf("[%s] Completed on", logPrefix), "block", stageProgress)

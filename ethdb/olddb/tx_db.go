@@ -7,8 +7,6 @@ import (
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/ethdb"
 	"github.com/ledgerwatch/log/v3"
-
-	"github.com/segmentio/kafka-go"
 )
 
 // TxDb - provides Database interface around ethdb.Tx
@@ -25,11 +23,6 @@ type TxDb struct {
 	txFlags ethdb.TxFlags
 	len     uint64
 }
-
-// --- kafka
-func (m *TxDb) AddTrace(trace kafka.Message) {} // TxDb is decrecated
-
-// --- end of kafka
 
 // nolint
 func WrapIntoTxDB(tx kv.RwTx) *TxDb {

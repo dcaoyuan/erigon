@@ -44,7 +44,7 @@ type Config struct {
 	ExtraEips []int // Additional EIPS that are to be enabled
 
 	// --- kafka
-	KTracer evmtypes.KafkaTracer
+	KTracer *evmtypes.KafkaTracer
 	// --- end of kafka
 }
 

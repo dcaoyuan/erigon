@@ -3,7 +3,11 @@
 package evmtypes
 
 import (
+	"context"
 	"fmt"
+	"math/big"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/holiman/uint256"
@@ -15,23 +19,118 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// Also see erigon/ethdb/olddb/mapmutation.go
-type KafkaTracer interface {
-	AddTx(hash common.Hash, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasPrice *uint256.Int, gas uint64)
-	CurrentTx() *TxTrace
-	SetReceipts(receipts types.Receipts)
-	AddReward(Recipient common.Address, Amount uint256.Int)
-	NextCallId() uint
-	EncodeTrace() (*kafka.Message, error)
+var once sync.Once
+var instance *KafkaTraces
+
+func GetKafkaTraces() *KafkaTraces {
+	once.Do(func() {
+		instance = &KafkaTraces{
+			kafkaWriter: &kafka.Writer{
+				Addr:         kafka.TCP(KAFKA_SERVERS),
+				Topic:        KAFKA_TOPIC,
+				RequiredAcks: kafka.RequireOne,
+				BatchSize:    1,           // make sure send each one to kafka at once to complete block execution.
+				BatchBytes:   209_715_200, // 200M (pre-compressed). kafka-go checks if each message is less than this.
+			},
+
+			traces: make(map[int64]kafka.Message),
+		}
+
+		//checkCommittedBlockNumber()
+	})
+
+	return instance
 }
 
-type kafkaTracer struct {
+var KAFKA_SERVERS = "192.168.1.102:9092"
+var KAFKA_TOPIC = "eth-mainnet-incoming"
+
+type BlockNums []int64
+
+func (a BlockNums) Len() int           { return len(a) }
+func (a BlockNums) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a BlockNums) Less(i, j int) bool { return a[i] < a[j] }
+
+type KafkaTraces struct {
+	kafkaWriter *kafka.Writer
+	traces      map[int64]kafka.Message
+}
+
+func (m *KafkaTraces) AddTrace(trace kafka.Message) {
+	blockNum := timestamp(trace.Time)
+	m.traces[blockNum] = trace
+}
+
+func (m *KafkaTraces) ResetTraces() {
+	m.traces = make(map[int64]kafka.Message)
+}
+
+func (m *KafkaTraces) CommitTraces() {
+	log.Info("Writing to kafka ...", "blocks", len(m.traces))
+
+	// sort by block number
+	blockNums := make(BlockNums, 0, len(m.traces))
+	for k := range m.traces {
+		blockNums = append(blockNums, k)
+	}
+	sort.Sort(blockNums)
+
+	for _, k := range blockNums {
+		msg := m.traces[k]
+		err := m.kafkaWriter.WriteMessages(context.Background(), msg)
+
+		blocknumber := timestamp(msg.Time)
+		if err != nil {
+			log.Error("Kafka error at block", "block", blocknumber, "err", err)
+		} else {
+			log.Info(fmt.Sprintf("CommitTrace: block %v, rlp %v", blocknumber, len(msg.Value)))
+		}
+	}
+
+	m.ResetTraces()
+}
+
+func (m *KafkaTraces) RollbackTraces() {
+	m.traces = make(map[int64]kafka.Message)
+}
+
+func checkCommittedBlockNumber() (*big.Int, error) {
+	conn, err := kafka.DialLeader(context.Background(), "tcp", KAFKA_SERVERS, KAFKA_TOPIC, 0)
+	if err != nil {
+		log.Error("failed to dial leader:", err)
+	}
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	lastOffset, err := conn.ReadLastOffset()
+	if err != nil {
+		log.Error("failed to read last offset:", err)
+	}
+
+	if lastOffset > 0 {
+		// seeking to the latest means waiting for new messages; -1 will read the latest produced message
+		conn.Seek(1, kafka.SeekEnd)
+		msg, err := conn.ReadMessage(1e6) // 1MB max
+		if err != nil {
+			log.Error("failed to read:", err)
+		} else {
+			return new(big.Int).SetInt64(timestamp(msg.Time)), nil
+		}
+	} else {
+		return new(big.Int).SetInt64(-1), nil
+	}
+
+	//log.Info(fmt.Sprintf("committedBlock is %d", committedBlock))
+	return nil, nil
+}
+
+type KafkaTracer struct {
 	blockTrace BlockTrace
 	nextCallId uint
 }
 
-func NewKafkaTracer(block *types.Block) *kafkaTracer {
-	return &kafkaTracer{
+func NewKafkaTracer(block *types.Block) *KafkaTracer {
+	return &KafkaTracer{
 		blockTrace: BlockTrace{
 			Block:   block,
 			Txs:     []TxTrace{},
@@ -221,7 +320,7 @@ func (tx *TxTrace) CurrentCall() *CallTrace {
 
 // --- implementation of KafkaTracer interface
 
-func (kt *kafkaTracer) AddTx(hash common.Hash, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasPrice *uint256.Int, gas uint64) {
+func (kt *KafkaTracer) AddTx(hash common.Hash, from common.Address, to *common.Address, value *uint256.Int, input []byte, gasPrice *uint256.Int, gas uint64) {
 	inCp := make([]byte, len(input))
 	copy(inCp, input)
 
@@ -242,7 +341,7 @@ func (kt *kafkaTracer) AddTx(hash common.Hash, from common.Address, to *common.A
 	kt.blockTrace.Txs = append(kt.blockTrace.Txs, tx)
 }
 
-func (kt *kafkaTracer) CurrentTx() *TxTrace {
+func (kt *KafkaTracer) CurrentTx() *TxTrace {
 	n := len(kt.blockTrace.Txs) - 1
 
 	if n >= 0 {
@@ -252,25 +351,25 @@ func (kt *kafkaTracer) CurrentTx() *TxTrace {
 	}
 }
 
-func (kt *kafkaTracer) AddReward(receipent common.Address, amount uint256.Int) {
+func (kt *KafkaTracer) AddReward(receipent common.Address, amount uint256.Int) {
 	kt.blockTrace.Rewards = append(kt.blockTrace.Rewards, RewardTrace{Recipient: receipent, Amount: amount})
 }
 
-func (kt *kafkaTracer) SetReceipts(receipts types.Receipts) {
+func (kt *KafkaTracer) SetReceipts(receipts types.Receipts) {
 	kt.blockTrace.Receipts = receipts
 }
 
-func (kt *kafkaTracer) BlockTrace() BlockTrace {
+func (kt *KafkaTracer) BlockTrace() BlockTrace {
 	return kt.blockTrace
 }
 
-func (kt *kafkaTracer) NextCallId() uint {
+func (kt *KafkaTracer) NextCallId() uint {
 	kt.nextCallId++
 
 	return kt.nextCallId
 }
 
-func (kt *kafkaTracer) EncodeTrace() (*kafka.Message, error) {
+func (kt *KafkaTracer) EncodeTrace() (*kafka.Message, error) {
 	blockNumber := kt.blockTrace.Block.Number()
 
 	rlpBlock, err := rlp.EncodeToBytes(kt.blockTrace)
@@ -284,7 +383,7 @@ func (kt *kafkaTracer) EncodeTrace() (*kafka.Message, error) {
 	}
 }
 
-func (kt *kafkaTracer) CommitTraces_test() {
+func (kt *KafkaTracer) CommitTraces_test() {
 	detail := false
 
 	log.Info(fmt.Sprintf("CommitTraces: %v, %v", kt.blockTrace.Block.Number(), len(kt.blockTrace.Txs)))

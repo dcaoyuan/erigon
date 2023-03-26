@@ -23,7 +23,7 @@ func TestKafka(*testing.T) {
 	fmt.Printf("blockNumber [% x], %d, %d\n", blockNumber.Bytes(), blockNumberFromBytes, blockNumberAsTimestamp)
 	// --- for java, use: new java.math.BigInteger(1, bytes)
 
-	conn, err := kafka.DialLeader(context.Background(), "tcp", "192.168.1.102:9092", "eth-main", 0)
+	conn, err := kafka.DialLeader(context.Background(), "tcp", "192.168.1.102:9092", "eth-mainnet-incoming", 0)
 	if err != nil {
 		log.Fatal("failed to dial leader:", err)
 	}
