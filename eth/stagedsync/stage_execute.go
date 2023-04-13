@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/ledgerwatch/erigon-lib/common/length"
 	"github.com/ledgerwatch/erigon-lib/etl"
 	"github.com/ledgerwatch/erigon-lib/kv"
+	"github.com/ledgerwatch/erigon-lib/kv/memdb"
 	"github.com/ledgerwatch/erigon-lib/kv/rawdbv3"
 	"github.com/ledgerwatch/erigon-lib/kv/temporal/historyv2"
 	libstate "github.com/ledgerwatch/erigon-lib/state"
@@ -34,6 +36,7 @@ import (
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
 	"github.com/ledgerwatch/erigon/core/vm"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/eth/calltracer"
 	"github.com/ledgerwatch/erigon/eth/ethconfig"
 	"github.com/ledgerwatch/erigon/eth/ethconfig/estimate"
@@ -396,9 +399,10 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, tx kv.RwTx, toBlock uint
 	if to <= s.BlockNumber {
 		return nil
 	}
-	if !quiet && to > s.BlockNumber+16 {
-		log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "from", s.BlockNumber, "to", to)
-	}
+	//if !quiet && to > s.BlockNumber+16 {
+	//	log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "from", s.BlockNumber, "to", to)
+	//}
+	log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "tx", reflect.TypeOf(tx), "from", s.BlockNumber, "to", to)
 	stateStream := !initialCycle && cfg.stateStream && to-s.BlockNumber < stateStreamLimit
 
 	// changes are stored through memory buffer
@@ -415,12 +419,24 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, tx kv.RwTx, toBlock uint
 
 	var stoppedErr error
 
+	// --- kafka
+	// If isMemDb, it's called from stage_headers by cfg.forkValidator.ValidatePayload
+	// and will commit in stage_headers by cfg.forkValidator.FlushExtendingFork if fork choice update
+	// Actually, memdb commit and rollback will be handled by fork_validator
+	_, isMemDb := tx.(*memdb.MemoryMutation)
+	// --- end of kafka
+
 	var batch ethdb.DbWithPendingMutations
 	// state is stored through ethdb batches
 	batch = olddb.NewHashBatch(tx, quit, cfg.dirs.Tmp)
 	// avoids stacking defers within the loop
 	defer func() {
 		batch.Rollback()
+		// --- kafka
+		if !isMemDb { // batch.Rollback() do not rollback it's underlying db, i.e. if this db is memdb, won't rollback it.
+			evmtypes.GetKafkaTraces().RollbackTraces()
+		}
+		// --- end of kafka
 	}()
 
 Loop:
@@ -448,6 +464,11 @@ Loop:
 		writeChangeSets := nextStagesExpectData || blockNum > cfg.prune.History.PruneTo(to)
 		writeReceipts := nextStagesExpectData || blockNum > cfg.prune.Receipts.PruneTo(to)
 		writeCallTraces := nextStagesExpectData || blockNum > cfg.prune.CallTraces.PruneTo(to)
+
+		// --- kafka
+		cfg.vmConfig.KTracer = evmtypes.NewKafkaTracer(block)
+		// --- end of kafka
+
 		if err = executeBlock(block, tx, batch, cfg, *cfg.vmConfig, writeChangeSets, writeReceipts, writeCallTraces, initialCycle, stateStream); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				log.Warn(fmt.Sprintf("[%s] Execution failed", logPrefix), "block", blockNum, "hash", block.Hash().String(), "err", err)
@@ -462,6 +483,14 @@ Loop:
 			break Loop
 		}
 		stageProgress = blockNum
+
+		// --- kafka
+		if msg, err := cfg.vmConfig.KTracer.EncodeTrace(); err != nil {
+			log.Error("EncodeTrace", "err", err)
+		} else {
+			evmtypes.GetKafkaTraces().AddTrace(*msg)
+		}
+		// --- end of kafka
 
 		shouldUpdateProgress := batch.BatchSize() >= int(cfg.batchSize)
 		if shouldUpdateProgress {
@@ -484,6 +513,13 @@ Loop:
 				// TODO: This creates stacked up deferrals
 				defer tx.Rollback()
 			}
+
+			// --- kafka
+			if !isMemDb {
+				evmtypes.GetKafkaTraces().CommitTraces()
+			}
+			// --- end of kafka
+
 			batch = olddb.NewHashBatch(tx, quit, cfg.dirs.Tmp)
 		}
 
@@ -516,6 +552,12 @@ Loop:
 			return err
 		}
 	}
+
+	// --- kafka
+	if !isMemDb {
+		evmtypes.GetKafkaTraces().CommitTraces()
+	}
+	// --- end of kafka
 
 	if !quiet {
 		log.Info(fmt.Sprintf("[%s] Completed on", logPrefix), "block", stageProgress)

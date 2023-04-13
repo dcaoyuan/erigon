@@ -99,4 +99,9 @@ type IntraBlockState interface {
 	Snapshot() int
 
 	AddLog(*types.Log)
+
+	// --- kafka
+	KTracer() *KafkaTracer
+	SetKTracer(tracer *KafkaTracer)
+	// --- end of kafka
 }

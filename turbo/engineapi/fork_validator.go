@@ -28,6 +28,7 @@ import (
 	"github.com/ledgerwatch/erigon/common/math"
 	"github.com/ledgerwatch/erigon/core/rawdb"
 	"github.com/ledgerwatch/erigon/core/types"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/turbo/shards"
 )
 
@@ -112,6 +113,10 @@ func (fv *ForkValidator) NotifyCurrentHeight(currentHeight uint64) {
 	// If the head changed,e previous assumptions on head are incorrect now.
 	if fv.extendingFork != nil {
 		fv.extendingFork.Rollback()
+
+		// --- kafka
+		evmtypes.GetKafkaTraces().RollbackTraces()
+		// end of kafka
 	}
 	fv.extendingFork = nil
 	fv.extendingForkNotifications = nil
@@ -126,9 +131,19 @@ func (fv *ForkValidator) FlushExtendingFork(tx kv.RwTx, accumulator *shards.Accu
 	if err := fv.extendingFork.Flush(tx); err != nil {
 		return err
 	}
+
+	// --- kafka
+	evmtypes.GetKafkaTraces().CommitTraces()
+	// end of kafka
+
 	fv.extendingForkNotifications.Accumulator.CopyAndReset(accumulator)
 	// Clean extending fork data
 	fv.extendingFork.Rollback()
+
+	// --- kafka
+	evmtypes.GetKafkaTraces().RollbackTraces()
+	// end of kafka
+
 	fv.extendingForkHeadHash = libcommon.Hash{}
 	fv.extendingFork = nil
 	fv.extendingForkNotifications = nil
@@ -159,6 +174,11 @@ func (fv *ForkValidator) ValidatePayload(tx kv.RwTx, header *types.Header, body 
 		// If the new block extends the canonical chain we update extendingFork.
 		if fv.extendingFork == nil {
 			fv.extendingFork = memdb.NewMemoryBatch(tx, fv.tmpDir)
+
+			// --- kafka
+			evmtypes.GetKafkaTraces().ResetTraces()
+			// --- end of kafka
+
 			fv.extendingForkNotifications = &shards.Notifications{
 				Events:      shards.NewEvents(),
 				Accumulator: shards.NewAccumulator(),
@@ -219,7 +239,18 @@ func (fv *ForkValidator) ValidatePayload(tx kv.RwTx, header *types.Header, body 
 		unwindPoint = 0
 	}
 	batch := memdb.NewMemoryBatch(tx, fv.tmpDir)
-	defer batch.Rollback()
+
+	// --- kafka
+	evmtypes.GetKafkaTraces().ResetTraces()
+	// --- end of kafka
+
+	defer func() {
+		batch.Rollback()
+
+		// --- kafka
+		evmtypes.GetKafkaTraces().RollbackTraces()
+		// --- end of kafka
+	}()
 	notifications := &shards.Notifications{
 		Events:      shards.NewEvents(),
 		Accumulator: shards.NewAccumulator(),
@@ -233,6 +264,10 @@ func (fv *ForkValidator) ValidatePayload(tx kv.RwTx, header *types.Header, body 
 func (fv *ForkValidator) clear() {
 	if fv.extendingFork != nil {
 		fv.extendingFork.Rollback()
+
+		// --- kafka
+		evmtypes.GetKafkaTraces().RollbackTraces()
+		// end of kafka
 	}
 	fv.extendingForkHeadHash = libcommon.Hash{}
 	fv.extendingFork = nil
@@ -260,6 +295,10 @@ func (fv *ForkValidator) ClearWithUnwind(tx kv.RwTx, accumulator *shards.Accumul
 			log.Warn("could not notify txpool of invalid side fork", "err", err)
 		}
 		fv.extendingFork.Rollback()
+
+		// --- kafka
+		evmtypes.GetKafkaTraces().RollbackTraces()
+		// end of kafka
 	}
 	fv.clear()
 }
@@ -274,7 +313,13 @@ func (fv *ForkValidator) validateAndStorePayload(tx kv.RwTx, header *types.Heade
 		status = remote.EngineStatus_INVALID
 		if fv.extendingFork != nil {
 			fv.extendingFork.Rollback()
+
+			// --- kafka
+			evmtypes.GetKafkaTraces().RollbackTraces()
+			// end of kafka
+
 			fv.extendingFork = nil
+
 		}
 		fv.extendingForkHeadHash = libcommon.Hash{}
 		return

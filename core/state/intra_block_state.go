@@ -28,6 +28,7 @@ import (
 	"github.com/ledgerwatch/erigon/common/u256"
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/crypto"
 	"github.com/ledgerwatch/erigon/turbo/trie"
 )
@@ -83,6 +84,10 @@ type IntraBlockState struct {
 	trace          bool
 	accessList     *accessList
 	balanceInc     map[libcommon.Address]*BalanceIncrease // Map of balance increases (without first reading the account)
+
+	// --- kafka
+	kTracer *evmtypes.KafkaTracer
+	// --- end of kafka
 }
 
 // Create a new state from a given trie
@@ -98,6 +103,16 @@ func New(stateReader StateReader) *IntraBlockState {
 		balanceInc:        map[libcommon.Address]*BalanceIncrease{},
 	}
 }
+
+// --- kafka
+
+// Should check if KTracer() return nil before use it, since a call may from ApplyTransaction for just a rpc call
+func (sdb *IntraBlockState) KTracer() *evmtypes.KafkaTracer { return sdb.kTracer }
+func (sdb *IntraBlockState) SetKTracer(tracer *evmtypes.KafkaTracer) {
+	sdb.kTracer = tracer
+}
+
+// --- end of kafka
 
 func (sdb *IntraBlockState) SetTrace(trace bool) {
 	sdb.trace = trace
