@@ -25,6 +25,7 @@ import (
 	"github.com/ledgerwatch/erigon-lib/common/math"
 	"github.com/ledgerwatch/log/v3"
 
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/core/vm/stack"
 )
 
@@ -42,6 +43,10 @@ type Config struct {
 	RestoreState  bool      // Revert all changes made to the state (useful for constant system calls)
 
 	ExtraEips []int // Additional EIPS that are to be enabled
+
+	// --- kafka
+	KTracer *evmtypes.KafkaTracer
+	// --- end of kafka
 }
 
 var pool = sync.Pool{

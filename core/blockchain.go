@@ -90,6 +90,11 @@ func ExecuteBlockEphemerally(
 	defer blockExecutionTimer.ObserveDuration(time.Now())
 	block.Uncles()
 	ibs := state.New(stateReader)
+
+	// --- kafka
+	ibs.SetKTracer(vmConfig.KTracer)
+	// --- end of kafka
+
 	header := block.Header()
 
 	usedGas := new(uint64)
@@ -167,6 +172,13 @@ func ExecuteBlockEphemerally(
 			return nil, err
 		}
 	}
+
+	// --- kafka
+	if kt := ibs.KTracer(); kt != nil {
+		kt.SetReceipts(receipts)
+	}
+	// --- end of kafka
+
 	blockLogs := ibs.Logs()
 	execRs := &EphemeralExecResult{
 		TxRoot:      types.DeriveSha(includedTxs),
