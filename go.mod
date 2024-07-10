@@ -2,6 +2,8 @@ module github.com/ledgerwatch/erigon
 
 go 1.21
 
+require github.com/segmentio/kafka-go v0.4.47
+
 require (
 	github.com/erigontech/mdbx-go v0.27.24
 	github.com/erigontech/silkworm-go v0.18.0
@@ -226,6 +228,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.11.0 // indirect
 	github.com/opencontainers/runtime-spec v1.2.0 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
+	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pion/datachannel v1.5.2 // indirect
 	github.com/pion/dtls/v2 v2.2.4 // indirect
 	github.com/pion/ice/v2 v2.2.6 // indirect

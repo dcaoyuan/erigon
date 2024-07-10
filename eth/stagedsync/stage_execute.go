@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"time"
 
@@ -41,6 +42,7 @@ import (
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
 	"github.com/ledgerwatch/erigon/core/vm"
+	"github.com/ledgerwatch/erigon/core/vm/evmtypes"
 	"github.com/ledgerwatch/erigon/eth/calltracer"
 	"github.com/ledgerwatch/erigon/eth/ethconfig"
 	"github.com/ledgerwatch/erigon/eth/ethconfig/estimate"
@@ -425,9 +427,10 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 		return nil
 	}
 
-	if to > s.BlockNumber+16 {
-		logger.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "from", s.BlockNumber, "to", to)
-	}
+	//if to > s.BlockNumber+16 {
+	//	logger.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "from", s.BlockNumber, "to", to)
+	//}
+	log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "tx", reflect.TypeOf(txc.Tx), "from", s.BlockNumber, "to", to)
 
 	stateStream := cfg.stateStream && to-s.BlockNumber < stateStreamLimit
 
@@ -446,12 +449,26 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 
 	var stoppedErr error
 
+	// --- kafka
+	// If isMemoryMutation, it's called from stage_headers by cfg.forkValidator.ValidatePayload
+	// and will commit in stage_headers by cfg.forkValidator.FlushExtendingFork if fork choice update
+	// Actually, memdb commit and rollback will be handled by fork_validator
+	// And we will commit only when mdbx.MdbxTx here.
+	_, isMemoryMutation := txc.Tx.(*membatchwithdb.MemoryMutation)
+	// --- end of kafka
+
 	var batch kv.PendingMutations
 	// state is stored through ethdb batches
 	batch = membatch.NewHashBatch(txc.Tx, quit, cfg.dirs.Tmp, logger)
 	// avoids stacking defers within the loop
 	defer func() {
 		batch.Close()
+
+		// --- kafka
+		if !isMemoryMutation { // batch.Close() does not rollback its underlying db (i.e. tx)
+			evmtypes.GetKafkaTraces().RollbackTraces()
+		}
+		// --- end of kafka
 	}()
 
 	var readAhead chan uint64
@@ -526,6 +543,10 @@ Loop:
 				blockNum++
 			}
 		} else {
+			// --- kafka
+			cfg.vmConfig.KTracer = evmtypes.NewKafkaTracer(block)
+			// --- end of kafka
+
 			err = executeBlock(block, txc.Tx, batch, cfg, *cfg.vmConfig, writeChangeSets, writeReceipts, writeCallTraces, stateStream, logger)
 		}
 
@@ -540,6 +561,7 @@ Loop:
 				p.Signal(os.Interrupt)
 				return nil
 			}
+
 			if !errors.Is(err, context.Canceled) {
 				if cfg.silkworm != nil {
 					logger.Warn(fmt.Sprintf("[%s] Execution failed", logPrefix), "block", blockNum, "err", err)
@@ -564,6 +586,14 @@ Loop:
 
 		metrics.UpdateBlockConsumerPostExecutionDelay(block.Time(), blockNum, logger)
 
+		// --- kafka
+		if msg, err := cfg.vmConfig.KTracer.EncodeTrace(); err != nil {
+			log.Error("EncodeTrace", "err", err)
+		} else {
+			evmtypes.GetKafkaTraces().AddTrace(*msg)
+		}
+		// --- end of kafka
+
 		shouldUpdateProgress := batch.BatchSize() >= int(cfg.batchSize)
 		if shouldUpdateProgress {
 			commitTime := time.Now()
@@ -586,6 +616,13 @@ Loop:
 			}
 			logger.Info("Committed State", "gas reached", currentStateGas, "gasTarget", gasState, "block", blockNum, "time", time.Since(commitTime), "committedToDb", !useExternalTx)
 			currentStateGas = 0
+
+			// --- kafka
+			if !isMemoryMutation {
+				evmtypes.GetKafkaTraces().CommitTraces()
+			}
+			// --- end of kafka
+
 			batch = membatch.NewHashBatch(txc.Tx, quit, cfg.dirs.Tmp, logger)
 		}
 
@@ -619,7 +656,14 @@ Loop:
 		}
 	}
 
+	// --- kafka
+	if !isMemoryMutation {
+		evmtypes.GetKafkaTraces().CommitTraces()
+	}
+	// --- end of kafka
+
 	logger.Info(fmt.Sprintf("[%s] Completed on", logPrefix), "block", stageProgress)
+
 	return stoppedErr
 }
 
