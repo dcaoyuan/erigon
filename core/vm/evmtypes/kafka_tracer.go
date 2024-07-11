@@ -278,6 +278,7 @@ func NewSStoreTrace(offset uint256.Int, oldValue uint256.Int, newValue uint256.I
 }
 
 func (tx *TxTrace) AddOp(op OpTrace) {
+	log.Info(fmt.Sprintf("AddOp: %v", tx))
 	if tx.CurrentCall() != nil {
 		op.SetCallId(tx.CurrentCall().Id)
 	}
@@ -311,6 +312,8 @@ func (tx *TxTrace) PopCall() *CallTrace {
 }
 
 func (tx *TxTrace) CurrentCall() *CallTrace {
+	log.Info(fmt.Sprintf("CurrentCall: %v, %v", tx, tx.callstack))
+
 	n := len(tx.callstack) - 1
 	if n >= 0 {
 		return tx.callstack[n]
