@@ -91,10 +91,6 @@ func ExecuteBlockEphemerally(
 	block.Uncles()
 	ibs := state.New(stateReader)
 
-	// --- kafka
-	ibs.SetKTracer(vmConfig.KTracer)
-	// --- end of kafka
-
 	header := block.Header()
 
 	usedGas := new(uint64)
@@ -105,6 +101,11 @@ func ExecuteBlockEphemerally(
 	if err := InitializeBlockExecution(engine, chainReader, block.Header(), chainConfig, ibs, logger); err != nil {
 		return nil, err
 	}
+
+	// --- kafka
+	// only set after InitializeBlockExecution to avoid evm.call without tx (for example in SysCallContract)
+	ibs.SetKTracer(vmConfig.KTracer)
+	// --- end of kafka
 
 	var rejectedTxs []*RejectedTx
 	includedTxs := make(types.Transactions, 0, block.Transactions().Len())
