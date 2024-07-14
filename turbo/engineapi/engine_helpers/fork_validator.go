@@ -111,7 +111,7 @@ func (fv *ForkValidator) NotifyCurrentHeight(currentHeight uint64) {
 	fv.memoryDiff = nil
 
 	// --- kafka
-	evmtypes.GetKafkaTraces().RollbackTraces()
+	evmtypes.GetKafkaTraces().ResetTraces()
 	// end of kafka
 
 	fv.extendingForkNotifications = nil
@@ -137,7 +137,7 @@ func (fv *ForkValidator) FlushExtendingFork(tx kv.RwTx, accumulator *shards.Accu
 	fv.memoryDiff = nil
 
 	// --- kafka
-	evmtypes.GetKafkaTraces().RollbackTraces()
+	evmtypes.GetKafkaTraces().ResetTraces()
 	// end of kafka
 
 	fv.extendingForkHeadHash = libcommon.Hash{}
@@ -172,13 +172,9 @@ func (fv *ForkValidator) ValidatePayload(tx kv.Tx, header *types.Header, body *t
 			extendingFork.Close()
 
 			// --- kafka
-			evmtypes.GetKafkaTraces().RollbackTraces()
+			evmtypes.GetKafkaTraces().ResetTraces()
 			// --- end of kafka
 		}()
-
-		// --- kafka
-		evmtypes.GetKafkaTraces().ResetTraces()
-		// --- end of kafka
 
 		var txc wrap.TxContainer
 		txc.Tx = extendingFork
@@ -268,10 +264,6 @@ func (fv *ForkValidator) ValidatePayload(tx kv.Tx, header *types.Header, body *t
 		// --- end of kafka
 	}()
 
-	// --- kafka
-	evmtypes.GetKafkaTraces().ResetTraces()
-	// --- end of kafka
-
 	var txc wrap.TxContainer
 	txc.Tx = batch
 	notifications := &shards.Notifications{
@@ -290,7 +282,7 @@ func (fv *ForkValidator) clear() {
 	fv.memoryDiff = nil
 
 	// --- kafka
-	evmtypes.GetKafkaTraces().RollbackTraces()
+	evmtypes.GetKafkaTraces().ResetTraces()
 	// end of kafka
 }
 
@@ -301,7 +293,7 @@ func (fv *ForkValidator) ClearWithUnwind(accumulator *shards.Accumulator, c shar
 	fv.clear()
 
 	// --- kafka
-	evmtypes.GetKafkaTraces().RollbackTraces()
+	evmtypes.GetKafkaTraces().ResetTraces()
 	// end of kafka
 }
 

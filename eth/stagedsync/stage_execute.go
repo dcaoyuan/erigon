@@ -450,10 +450,10 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 	var stoppedErr error
 
 	// --- kafka
-	// If isMemoryMutation, it's called from stage_headers by cfg.forkValidator.ValidatePayload
+	// If isHandledByForkValidator, it's called from stage_headers by cfg.forkValidator.ValidatePayload
 	// and will commit in stage_headers by cfg.forkValidator.FlushExtendingFork if fork choice update
 	// Actually, memdb commit and rollback will be handled by fork_validator
-	_, isMemoryMutation := txc.Tx.(*membatchwithdb.MemoryMutation)
+	_, isHandledByForkValidator := txc.Tx.(*membatchwithdb.MemoryMutation)
 	// --- end of kafka
 
 	var batch kv.PendingMutations
@@ -463,10 +463,11 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 	defer func() {
 		batch.Close()
 
+		log.Info("ResetTraces?", "tx", reflect.TypeOf(txc.Tx), "isHandledByForkValidator", isHandledByForkValidator)
 		// --- kafka
-		if !isMemoryMutation { // batch.Rollback() does not rollback it's underlying db, i.e. if this db is memdb, won't rollback it.
-			evmtypes.GetKafkaTraces().RollbackTraces()
-		}
+		//if !isHandledByForkValidator { // batch.Rollback() does not rollback it's underlying db, i.e. if this db is memdb, won't rollback it.
+		//	evmtypes.GetKafkaTraces().ResetTraces()
+		//}
 		// --- end of kafka
 	}()
 
@@ -546,6 +547,7 @@ Loop:
 			cfg.vmConfig.KTracer = evmtypes.NewKafkaTracer(block)
 			// --- end of kafka
 
+			log.Info("executeBlock", "num", blockNum)
 			err = executeBlock(block, txc.Tx, batch, cfg, *cfg.vmConfig, writeChangeSets, writeReceipts, writeCallTraces, stateStream, logger)
 		}
 
@@ -617,7 +619,7 @@ Loop:
 			currentStateGas = 0
 
 			// --- kafka
-			if !isMemoryMutation {
+			if !isHandledByForkValidator {
 				evmtypes.GetKafkaTraces().CommitTraces()
 			}
 			// --- end of kafka
@@ -656,7 +658,7 @@ Loop:
 	}
 
 	// --- kafka
-	if !isMemoryMutation {
+	if !isHandledByForkValidator {
 		evmtypes.GetKafkaTraces().CommitTraces()
 	}
 	// --- end of kafka
