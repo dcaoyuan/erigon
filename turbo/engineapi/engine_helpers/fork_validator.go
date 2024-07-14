@@ -168,12 +168,17 @@ func (fv *ForkValidator) ValidatePayload(tx kv.Tx, header *types.Header, body *t
 	log.Debug("Execution ForkValidator.ValidatePayload", "extendCanonical", extendCanonical)
 	if extendCanonical {
 		extendingFork := membatchwithdb.NewMemoryBatch(tx, fv.tmpDir, logger)
+
+		// --- kafka
+		evmtypes.GetKafkaTraces().ResetTraces()
+		// --- end of kafka
+
 		log.Info("new membatchwithdb.NewMemoryBatch")
 		defer func() {
 			extendingFork.Close()
 
 			// --- kafka
-			//evmtypes.GetKafkaTraces().ResetTraces()
+			evmtypes.GetKafkaTraces().ResetTraces()
 			// --- end of kafka
 		}()
 
