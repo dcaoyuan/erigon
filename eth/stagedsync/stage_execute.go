@@ -463,7 +463,7 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 		batch.Close()
 
 		// --- kafka
-		if !isHandledByForkValidator { // batch.Rollback() does not rollback it's underlying db, i.e. if this db is memdb, won't rollback it.
+		if !isHandledByForkValidator { // batch.Close() does not rollback its underlying db (i.e. tx)
 			evmtypes.GetKafkaTraces().ResetTraces()
 		}
 		// --- end of kafka

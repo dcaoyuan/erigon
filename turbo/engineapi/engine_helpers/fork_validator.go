@@ -177,7 +177,7 @@ func (fv *ForkValidator) ValidatePayload(tx kv.Tx, header *types.Header, body *t
 			extendingFork.Close()
 
 			// --- kafka
-			evmtypes.GetKafkaTraces().ResetTraces()
+			//evmtypes.GetKafkaTraces().ResetTraces()
 			// --- end of kafka
 		}()
 
