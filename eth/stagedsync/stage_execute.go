@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"runtime"
 	"time"
 
@@ -430,7 +429,7 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 	//if to > s.BlockNumber+16 {
 	//	logger.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "from", s.BlockNumber, "to", to)
 	//}
-	log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "tx", reflect.TypeOf(txc.Tx), "from", s.BlockNumber, "to", to)
+	log.Info(fmt.Sprintf("[%s] Blocks execution", logPrefix), "isHandledByForkValidator", txc.IsHandledByForkValidator, "from", s.BlockNumber, "to", to)
 
 	stateStream := cfg.stateStream && to-s.BlockNumber < stateStreamLimit
 
@@ -453,7 +452,7 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 	// If isHandledByForkValidator, it's called from stage_headers by cfg.forkValidator.ValidatePayload
 	// and will commit in stage_headers by cfg.forkValidator.FlushExtendingFork if fork choice update
 	// Actually, memdb commit and rollback will be handled by fork_validator
-	_, isHandledByForkValidator := txc.Tx.(*membatchwithdb.MemoryMutation)
+	isHandledByForkValidator := txc.IsHandledByForkValidator
 	// --- end of kafka
 
 	var batch kv.PendingMutations
@@ -463,11 +462,10 @@ func SpawnExecuteBlocksStage(s *StageState, u Unwinder, txc wrap.TxContainer, to
 	defer func() {
 		batch.Close()
 
-		log.Info("ResetTraces?", "tx", reflect.TypeOf(txc.Tx), "isHandledByForkValidator", isHandledByForkValidator)
 		// --- kafka
-		//if !isHandledByForkValidator { // batch.Rollback() does not rollback it's underlying db, i.e. if this db is memdb, won't rollback it.
-		//	evmtypes.GetKafkaTraces().ResetTraces()
-		//}
+		if !isHandledByForkValidator { // batch.Rollback() does not rollback it's underlying db, i.e. if this db is memdb, won't rollback it.
+			evmtypes.GetKafkaTraces().ResetTraces()
+		}
 		// --- end of kafka
 	}()
 
@@ -547,7 +545,6 @@ Loop:
 			cfg.vmConfig.KTracer = evmtypes.NewKafkaTracer(block)
 			// --- end of kafka
 
-			log.Info("executeBlock", "num", blockNum)
 			err = executeBlock(block, txc.Tx, batch, cfg, *cfg.vmConfig, writeChangeSets, writeReceipts, writeCallTraces, stateStream, logger)
 		}
 

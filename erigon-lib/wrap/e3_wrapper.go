@@ -7,4 +7,8 @@ import (
 type TxContainer struct {
 	Tx  kv.RwTx
 	Ttx kv.TemporalTx
+
+	// --- kafak
+	IsHandledByForkValidator bool
+	// --- end of kafka
 }

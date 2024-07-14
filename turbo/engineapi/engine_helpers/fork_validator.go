@@ -173,7 +173,6 @@ func (fv *ForkValidator) ValidatePayload(tx kv.Tx, header *types.Header, body *t
 		evmtypes.GetKafkaTraces().ResetTraces()
 		// --- end of kafka
 
-		log.Info("new membatchwithdb.NewMemoryBatch")
 		defer func() {
 			extendingFork.Close()
 
@@ -184,6 +183,10 @@ func (fv *ForkValidator) ValidatePayload(tx kv.Tx, header *types.Header, body *t
 
 		var txc wrap.TxContainer
 		txc.Tx = extendingFork
+
+		// --- kafka
+		txc.IsHandledByForkValidator = true
+		// --- end of kafka
 
 		fv.extendingForkNotifications = &shards.Notifications{
 			Events:      shards.NewEvents(),
