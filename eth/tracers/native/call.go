@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 
 	"github.com/holiman/uint256"
+	"golang.org/x/crypto/sha3"
 
 	libcommon "github.com/erigontech/erigon-lib/common"
 	"github.com/erigontech/erigon-lib/common/hexutil"
@@ -48,6 +49,69 @@ type callLog struct {
 	Data    hexutility.Bytes  `json:"data"`
 }
 
+type op interface {
+	op() vm.OpCode
+}
+
+func (p *baseOp) op() vm.OpCode {
+	return p.Op
+}
+
+type baseOp struct {
+	Sn uint8     `json:"sn,omitempty"`
+	Op vm.OpCode `json:"op"`
+}
+
+// use json friendly hexutility.Bytes alias instead of []byte
+type keccak256Op struct {
+	baseOp
+	Input  hexutility.Bytes `json:"input"`
+	Output hexutility.Bytes `json:"output"`
+}
+
+type sstoreOp struct {
+	baseOp
+	Offset hexutility.Bytes `json:"offset"`
+	OldVal hexutility.Bytes `json:"oldVal"`
+	NewVal hexutility.Bytes `json:"newVal"`
+}
+
+func newKeccak256Op(opsn uint8, input []byte, output []byte) *keccak256Op {
+	inputCopy := make([]byte, len(input))
+	copy(inputCopy, input)
+
+	outputCopy := make([]byte, len(output))
+	copy(outputCopy, output)
+
+	return &keccak256Op{
+		baseOp{opsn, vm.KECCAK256},
+		inputCopy,
+		outputCopy,
+	}
+}
+
+func newSstoreOp(opsn uint8, offset [32]byte, oldVal [32]byte, newVal [32]byte) *sstoreOp {
+	offsetCopy := make([]byte, len(offset))
+	copy(offsetCopy, offset[:])
+
+	oldValCopy := make([]byte, len(oldVal))
+	copy(oldValCopy, oldVal[:])
+
+	newValCopy := make([]byte, len(newVal))
+	copy(newValCopy, newVal[:])
+
+	return &sstoreOp{
+		baseOp{opsn, vm.SSTORE},
+		offsetCopy,
+		oldValCopy,
+		newValCopy,
+	}
+}
+
+func (f *callFrame) AddOp(op op) {
+	f.Ops = append(f.Ops, op)
+}
+
 type callFrame struct {
 	Type     vm.OpCode         `json:"-"`
 	From     libcommon.Address `json:"from"`
@@ -60,6 +124,8 @@ type callFrame struct {
 	Revertal string            `json:"revertReason,omitempty"`
 	Calls    []callFrame       `json:"calls,omitempty" rlp:"optional"`
 	Logs     []callLog         `json:"logs,omitempty" rlp:"optional"`
+	Ops      []op              `json:"ops,omitempty" rlp:"optional"`
+	Sn       uint8             `json:"sn,omitempty" rlp:"optional"`
 	// Placed at end on purpose. The RLP will be decoded to 0 instead of
 	// nil if there are non-empty elements after in the struct.
 	Value *big.Int `json:"value,omitempty" rlp:"optional"`
@@ -114,6 +180,14 @@ type callTracer struct {
 	logIndex    uint64
 	logGaps     map[uint64]int
 	precompiles []bool // keep track of whether scopes are for pre-compiles or not
+	evm         *vm.EVM
+	nextOpSn    uint8
+}
+
+func (t *callTracer) getNextOpSn() uint8 {
+	t.nextOpSn++
+
+	return t.nextOpSn
 }
 
 func defaultCallTracerConfig() callTracerConfig {
@@ -144,6 +218,8 @@ func newCallTracer(ctx *tracers.Context, cfg json.RawMessage) (tracers.Tracer, e
 
 // CaptureStart implements the EVMLogger interface to initialize the tracing operation.
 func (t *callTracer) CaptureStart(env *vm.EVM, from libcommon.Address, to libcommon.Address, precompile bool, create bool, input []byte, gas uint64, value *uint256.Int, code []byte) {
+	t.evm = env
+
 	t.precompiles = append(t.precompiles, precompile)
 	if precompile && !t.config.IncludePrecompiles {
 		return
@@ -155,6 +231,7 @@ func (t *callTracer) CaptureStart(env *vm.EVM, from libcommon.Address, to libcom
 		To:    to,
 		Input: libcommon.CopyBytes(input),
 		Gas:   t.gasLimit, // gas has intrinsicGas already subtracted
+		Sn:    t.getNextOpSn(),
 	}
 	if value != nil {
 		t.callstack[0].Value = value.ToBig()
@@ -179,7 +256,7 @@ func (t *callTracer) CaptureEnd(output []byte, gasUsed uint64, err error) {
 func (t *callTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
 	// Only logs need to be captured via opcode processing
 	if !t.config.WithLog {
-		return
+		//return
 	}
 	// Avoid processing nested calls when only caring about top call
 	if t.config.OnlyTopCall && depth > 0 {
@@ -193,30 +270,72 @@ func (t *callTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sco
 	if atomic.LoadUint32(&t.interrupt) > 0 {
 		return
 	}
+
+	stack := scope.Stack
+	stackData := stack.Data
+	stackSize := len(stackData)
 	switch op {
-	case vm.LOG0, vm.LOG1, vm.LOG2, vm.LOG3, vm.LOG4:
-		size := int(op - vm.LOG0)
+	case vm.SSTORE:
+		if stackSize >= 2 {
+			var (
+				offset   = stack.Data[stackSize-1]
+				value    = stack.Data[stackSize-2]
+				oldValue uint256.Int
+			)
 
-		stack := scope.Stack
-		stackData := stack.Data
-		stackSize := len(stackData)
-		if stackSize < 2 {
-			return
+			offsetHash := libcommon.Hash(offset.Bytes32())
+			t.evm.IntraBlockState().GetState(scope.Contract.Address(), &offsetHash, &oldValue)
+
+			op := newSstoreOp(t.getNextOpSn(), offset.Bytes32(), oldValue.Bytes32(), value.Bytes32())
+			t.callstack[len(t.callstack)-1].AddOp(op)
+
+			//log.Info(fmt.Sprintf("Add sstore: %v, ops len: %v", op, len(t.callstack[len(t.callstack)-1].Ops)))
 		}
-		// Don't modify the stack
-		mStart := stackData[stackSize-1]
-		mSize := stackData[stackSize-2]
-		topics := make([]libcommon.Hash, size)
-		dataStart := stackSize - 3
-		for i := 0; i < size && dataStart-i >= 0; i++ {
-			topic := stackData[dataStart-i]
-			topics[i] = libcommon.Hash(topic.Bytes32())
+	case vm.KECCAK256:
+		if stackSize >= 2 {
+			var (
+				offset = stack.Data[stackSize-1]
+				size   = stack.Data[stackSize-2]
+				hash   []byte
+			)
+
+			if size.Uint64() == 32 || size.Uint64() == 64 {
+				data := scope.Memory.GetPtr(int64(offset.Uint64()), int64(size.Uint64()))
+
+				hasher := sha3.NewLegacyKeccak256()
+				hasher.Write(data)
+				hash = hasher.Sum(nil)
+
+				op := newKeccak256Op(t.getNextOpSn(), data, hash)
+				t.callstack[len(t.callstack)-1].AddOp(op)
+
+				//log.Info(fmt.Sprintf("Add keccak256: %v, ops len: %v", op, len(t.callstack[len(t.callstack)-1].Ops)))
+			}
 		}
 
-		data := scope.Memory.GetCopy(int64(mStart.Uint64()), int64(mSize.Uint64()))
-		log := callLog{Address: scope.Contract.Address(), Topics: topics, Data: hexutility.Bytes(data), Index: t.logIndex}
-		t.logIndex++
-		t.callstack[len(t.callstack)-1].Logs = append(t.callstack[len(t.callstack)-1].Logs, log)
+		// case vm.LOG0, vm.LOG1, vm.LOG2, vm.LOG3, vm.LOG4:
+		// 	size := int(op - vm.LOG0)
+
+		// 	stack := scope.Stack
+		// 	stackData := stack.Data
+		// 	stackSize := len(stackData)
+		// 	if stackSize < 2 {
+		// 		return
+		// 	}
+		// 	// Don't modify the stack
+		// 	mStart := stackData[stackSize-1]
+		// 	mSize := stackData[stackSize-2]
+		// 	topics := make([]libcommon.Hash, size)
+		// 	dataStart := stackSize - 3
+		// 	for i := 0; i < size && dataStart-i >= 0; i++ {
+		// 		topic := stackData[dataStart-i]
+		// 		topics[i] = libcommon.Hash(topic.Bytes32())
+		// 	}
+
+		// 	data := scope.Memory.GetCopy(int64(mStart.Uint64()), int64(mSize.Uint64()))
+		// 	log := callLog{Address: scope.Contract.Address(), Topics: topics, Data: hexutility.Bytes(data), Index: t.logIndex}
+		// 	t.logIndex++
+		// 	t.callstack[len(t.callstack)-1].Logs = append(t.callstack[len(t.callstack)-1].Logs, log)
 	}
 }
 
@@ -240,6 +359,7 @@ func (t *callTracer) CaptureEnter(typ vm.OpCode, from libcommon.Address, to libc
 		To:    to,
 		Input: libcommon.CopyBytes(input),
 		Gas:   gas,
+		Sn:    t.getNextOpSn(),
 	}
 	if value != nil {
 		call.Value = value.ToBig()
@@ -313,6 +433,8 @@ func (t *callTracer) GetResult() (json.RawMessage, error) {
 		return nil, errors.New("incorrect number of top-level calls")
 	}
 	res, err := json.Marshal(t.callstack[0])
+	//log.Info(fmt.Sprintf("GetResult: %v", string(res)))
+
 	if err != nil {
 		return nil, err
 	}

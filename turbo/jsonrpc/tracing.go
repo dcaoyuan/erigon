@@ -18,6 +18,7 @@ package jsonrpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -37,6 +38,7 @@ import (
 	"github.com/erigontech/erigon/core/types"
 	"github.com/erigontech/erigon/core/vm"
 	"github.com/erigontech/erigon/core/vm/evmtypes"
+	"github.com/erigontech/erigon/eth/ethutils"
 	tracersConfig "github.com/erigontech/erigon/eth/tracers/config"
 	bortypes "github.com/erigontech/erigon/polygon/bor/types"
 	polygontracer "github.com/erigontech/erigon/polygon/tracer"
@@ -111,6 +113,9 @@ func (api *PrivateDebugAPIImpl) traceBlock(ctx context.Context, blockNrOrHash rp
 		return err
 	}
 
+	stream.WriteObjectStart()
+
+	stream.WriteObjectField("txs")
 	stream.WriteArrayStart()
 
 	txns := block.Transactions()
@@ -230,6 +235,63 @@ func (api *PrivateDebugAPIImpl) traceBlock(ctx context.Context, blockNrOrHash rp
 	}
 
 	stream.WriteArrayEnd()
+
+	// --- now we add block/rewards/receipts, we put them behind txs to let txs executing procudure cached
+
+	// --- from turbo/jsonrpc/eth_block.go
+	blockFields, _ := ethapi.RPCMarshalBlockEx(block, true, true, nil, common.Hash{}, map[string]interface{}{})
+
+	// --- from turbo/jsonrpc/trace_filtering.go
+	rewards, _ := api.engine().CalculateRewards(chainConfig, block.Header(), block.Uncles(), nil)
+
+	// --- from turbo/jsonrpc/eth_receipts.go
+	receipts, _ := api.getReceipts(ctx, tx, block)
+	receiptsFields := make([]map[string]interface{}, 0, len(receipts))
+	for _, receipt := range receipts {
+		txn := block.Transactions()[receipt.TransactionIndex]
+		receiptsFields = append(receiptsFields, ethutils.MarshalReceipt(receipt, txn, chainConfig, block.HeaderNoCopy(), txn.Hash(), true))
+	}
+
+	stream.WriteMore()
+
+	stream.WriteObjectField("block")
+	blockJson, _ := json.Marshal(blockFields)
+	stream.Write(blockJson)
+
+	stream.WriteMore()
+
+	stream.WriteObjectField("receipts")
+	receiptsJson, _ := json.Marshal(receiptsFields)
+	stream.Write(receiptsJson)
+
+	stream.WriteMore()
+
+	stream.WriteObjectField("rewards")
+	stream.WriteArrayStart()
+	for i, r := range rewards {
+		stream.WriteObjectStart()
+
+		stream.WriteObjectField("beneficiary")
+		stream.WriteString(r.Beneficiary.Hex())
+
+		stream.WriteMore()
+
+		stream.WriteObjectField("type")
+		stream.WriteString(rewardKindToString(r.Kind))
+
+		stream.WriteMore()
+
+		stream.WriteObjectField("amount")
+		stream.WriteUint64(r.Amount.Uint64())
+
+		stream.WriteObjectEnd()
+		if i != len(rewards)-1 {
+			stream.WriteMore()
+		}
+	}
+	stream.WriteArrayEnd()
+
+	stream.WriteObjectEnd()
 	if err := stream.Flush(); err != nil {
 		return err
 	}
