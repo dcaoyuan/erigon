@@ -28,6 +28,8 @@ func (c callFrame) MarshalJSON() ([]byte, error) {
 		Revertal   string           `json:"revertReason,omitempty"`
 		Calls      []callFrame      `json:"calls,omitempty" rlp:"optional"`
 		Logs       []callLog        `json:"logs,omitempty" rlp:"optional"`
+		Ops        []op             `json:"ops,omitempty" rlp:"optional"`
+		Sn         uint16           `json:"sn,omitempty" rlp:"optional"`
 		Value      *hexutil.Big     `json:"value,omitempty" rlp:"optional"`
 		TypeString string           `json:"type"`
 	}
@@ -43,6 +45,8 @@ func (c callFrame) MarshalJSON() ([]byte, error) {
 	enc.Revertal = c.Revertal
 	enc.Calls = c.Calls
 	enc.Logs = c.Logs
+	enc.Ops = c.Ops
+	enc.Sn = c.Sn
 	enc.Value = (*hexutil.Big)(c.Value)
 	enc.TypeString = c.TypeString()
 	return json.Marshal(&enc)
@@ -62,6 +66,8 @@ func (c *callFrame) UnmarshalJSON(input []byte) error {
 		Revertal *string           `json:"revertReason,omitempty"`
 		Calls    []callFrame       `json:"calls,omitempty" rlp:"optional"`
 		Logs     []callLog         `json:"logs,omitempty" rlp:"optional"`
+		Ops      []op              `json:"ops,omitempty" rlp:"optional"`
+		Sn       uint16            `json:"sn,omitempty" rlp:"optional"`
 		Value    *hexutil.Big      `json:"value,omitempty" rlp:"optional"`
 	}
 	var dec callFrame0
@@ -101,6 +107,10 @@ func (c *callFrame) UnmarshalJSON(input []byte) error {
 	if dec.Logs != nil {
 		c.Logs = dec.Logs
 	}
+	if dec.Ops != nil {
+		c.Ops = dec.Ops
+	}
+	c.Sn = dec.Sn
 	if dec.Value != nil {
 		c.Value = (*big.Int)(dec.Value)
 	}
